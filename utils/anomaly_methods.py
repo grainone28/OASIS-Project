@@ -135,9 +135,16 @@ def grid_search_temperature(
     for T in temps:
         all_scores = []
         for path in logit_files:
-            scores = msp_from_logits_file(path, temperature=T)
+            if method == "msp":
+                scores = msp_from_logits_file(path, temperature=T)
+            elif method == "rba":
+                # Note: rba_from_logits_file function will be added later.
+                # Raising an error to prevent silent fallbacks to MSP.
+                raise NotImplementedError("The rba_from_logits_file function is not yet implemented!")
+            else:
+                raise ValueError(f"Method {method} not recognized.")
+            
             all_scores.append(scores.flatten())
-        all_scores = np.concatenate(all_scores)
 
         eval_result = evaluate_anomaly(all_scores, labels, ignore_value=ignore_value)
         results[round(float(T), 4)] = eval_result[metric]
