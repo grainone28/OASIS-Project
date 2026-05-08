@@ -187,7 +187,9 @@ def main():
 
     # ── Temperature grid search ───────────────────────────────────────────────
     if args.temperature_search:
-        ts_cfg = cfg["methods"]["rba"]["temperature_scaling"]
+# Ensure we load the configuration for the correct method
+        method_name = args.method.lower()
+        ts_cfg = cfg["methods"][method_name]["temperature_scaling"]        
         temperatures = np.arange(ts_cfg["t_min"], ts_cfg["t_max"] + ts_cfg["t_step"],
                                  ts_cfg["t_step"])
         best_fpr95, best_T = float("inf"), 1.0
