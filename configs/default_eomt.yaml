@@ -1,0 +1,50 @@
+# ============================================================
+# configs/default_eomt.yaml — EoMT Fine-Tuning Hyperparameters
+# ============================================================
+
+# --- Dataset ---
+dataset:
+  name: cityscapes
+  root: ./data/cityscapes          # path to Cityscapes root (contains leftImg8bit/ and gtFine/)
+  num_classes: 19
+  image_size: [512, 1024]          # [H, W]
+
+# --- Model ---
+model:
+  backbone: vit_base_patch14_dinov2  # DINOv2 ViT-B/14 — nome corretto nel registro timm
+  num_queries: 100
+  freeze_backbone_layers: 9        # freeze first N transformer blocks (out of 12)
+
+# --- LoRA ---
+lora:
+  enabled: true
+  rank: 8                          # r — inner dimension of A and B
+  alpha: 16                        # scaling factor: LoRA weight = (alpha/r) * BA
+  dropout: 0.05
+  target_modules:                  # which attention projections to inject LoRA into
+    - q_proj
+    - v_proj
+
+# --- Training ---
+train:
+  epochs: 50
+  batch_size: 2                    # keep low to fit in GPU memory
+  gradient_accumulation_steps: 8   # effective batch = 2 * 8 = 16
+  learning_rate: 1.0e-4
+  weight_decay: 1.0e-4
+  lr_scheduler: cosine             # cosine annealing
+  warmup_epochs: 5
+  amp: true                        # Automatic Mixed Precision (FP16)
+  clip_grad_norm: 1.0
+  save_every: 5                    # checkpoint every N epochs
+
+# --- Logging ---
+logging:
+  project: vandal-eomt
+  run_name: lora_r8_cityscapes
+  use_wandb: false                 # set true to enable Weights & Biases
+
+# --- Paths ---
+paths:
+  checkpoint_dir: ./checkpoints
+  log_dir: ./logs

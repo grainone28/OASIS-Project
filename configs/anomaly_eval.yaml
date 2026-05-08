@@ -1,0 +1,39 @@
+# ============================================================
+# configs/anomaly_eval.yaml — OoD / Anomaly Evaluation Config
+# ============================================================
+
+# --- Dataset ---
+dataset:
+  cityscapes_root: ./data/cityscapes
+  fishyscapes_root: ./data/fishyscapes        # FS Lost & Found
+  smiyc_root: ./data/smiyc                   # SegmentMeIfYouCan
+
+# --- Model checkpoints ---
+checkpoints:
+  erfnet: ./checkpoints/erfnet_cityscapes.pth
+  eomt_coco: ./checkpoints/eomt_coco.pth
+  eomt_cityscapes: ./checkpoints/eomt_cityscapes.pth
+  eomt_finetuned: ./checkpoints/eomt_finetuned_best.pth
+
+# --- Anomaly methods ---
+methods:
+  msp:
+    enabled: true                 # Maximum Softmax Probability (Step 6 & 7)
+  rba:
+    enabled: true                 # Rejected by All (Step 8)
+    temperature_scaling:
+      enabled: true
+      t_min: 0.5
+      t_max: 2.0
+      t_step: 0.05               # grid search resolution
+
+# --- Logits cache ---
+logits_cache:
+  save_dir: ./logits_cache        # pre-computed logits saved as .npy
+  use_cache: true                 # skip model forward pass if cache exists
+
+# --- Metrics ---
+metrics:
+  - AuPRC                         # Area under Precision-Recall Curve (primary)
+  - FPR95                         # False Positive Rate at 95% TPR (primary)
+  - AuROC                         # supplementary

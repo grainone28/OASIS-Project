@@ -1,0 +1,14 @@
+torch>=2.2.0
+torchvision>=0.17.0
+numpy>=1.26
+Pillow
+PyYAML
+tqdm
+scikit-learn
+matplotlib
+transformers>=4.40.0
+timm>=0.9.16
+einops
+wandb
+opencv-python-headless
+scipy
