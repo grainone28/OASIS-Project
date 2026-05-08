@@ -1,0 +1,46 @@
+# ============================================================
+# VANDAL PROJECT — .gitignore
+# ============================================================
+
+# --- Heavy model weights (CRITICAL: never push to GitHub) ---
+checkpoints/
+*.pth
+*.pt
+*.bin
+*.ckpt
+
+# --- Saved logits for anomaly evaluation ---
+*.npy
+logits_cache/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# --- Environments ---
+.env
+*.env
+venv/
+env/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Wandb / MLflow logs ---
+wandb/
+mlruns/
+logs/
+runs/
+
+# --- Data (too large for git) ---
+data/cityscapes/
+data/fishyscapes/
+data/smiyc/
