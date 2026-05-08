@@ -174,6 +174,14 @@ Use `--temperature-search` to find the optimal `T` via fast grid search on cache
 
 ---
 
+## Results
+| Model | Method | Dataset | mIoU | AuPRC |
+|-------|--------|---------|------|-------|
+| ERFNet| MSP    | FS      | --   | --    |
+| EoMT  | RbA    | FS      | --   | --    |
+
+---
+
 ## Required Reading
 
 1. ERFNet — Romera et al., IEEE T-ITS 2018
