@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from data.cityscapes import CityscapesDataset
-from data.transforms import get_train_transform, get_val_transform, get_mask_transform
+from data.transforms import get_train_joint_transform, get_val_joint_transform
 from models.eomt import build_eomt
 from models.lora import inject_lora, count_trainable_params
 from utils.metrics import MeanIoUMeter
@@ -199,16 +199,20 @@ def main():
     model = model.to(device)
 
     # ── Datasets ─────────────────────────────────────────────────────────────
+    # NOTE:
+    # Training and validation datasets now rely on joint image-mask transforms.
+    # This fixes the previous risk of applying random geometric augmentations
+    # to the image only, which would corrupt supervision for segmentation.
+    # Joint transforms are mandatory for segmentation:
+    # image and mask must undergo the same geometric augmentation.
     img_size = tuple(cfg["dataset"]["image_size"])
     train_ds = CityscapesDataset(
         cfg["dataset"]["root"], "train",
-        transform=get_train_transform(img_size),
-        target_transform=get_mask_transform(img_size),
+        joint_transform=get_train_joint_transform(img_size),
     )
     val_ds = CityscapesDataset(
         cfg["dataset"]["root"], "val",
-        transform=get_val_transform(img_size),
-        target_transform=get_mask_transform(img_size),
+        joint_transform=get_val_joint_transform(img_size),
     )
     train_loader = DataLoader(train_ds, batch_size=cfg["train"]["batch_size"],
                               shuffle=True, num_workers=4, pin_memory=True, drop_last=True)

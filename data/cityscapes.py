@@ -47,12 +47,14 @@ class CityscapesDataset(Dataset):
         self,
         root: str,
         split: str = "val",          # "train" | "val" | "test"
-        transform: Optional[Callable] = None,
+        joint_transform: Optional[Callable] = None,
+        image_transform: Optional[Callable] = None,
         target_transform: Optional[Callable] = None,
     ):
         self.root = Path(root)
         self.split = split
-        self.transform = transform
+        self.joint_transform = joint_transform
+        self.image_transform = image_transform
         self.target_transform = target_transform
 
         self.images, self.masks = self._collect_paths()
@@ -79,6 +81,8 @@ class CityscapesDataset(Dataset):
 
         return images, masks
 
+    # Convert raw Cityscapes labelIds to the 19-class trainId space.
+    # Unused / void classes are mapped to IGNORE_INDEX = 255.
     @staticmethod
     def _encode_target(mask_pil: Image.Image) -> torch.Tensor:
         """Convert raw labelId mask → trainId tensor (uint8)."""
@@ -92,13 +96,24 @@ class CityscapesDataset(Dataset):
 
     def __len__(self) -> int:
         return len(self.images)
-
+    
+    # NOTE:
+    # The dataset now supports joint image-mask transforms.
+    # In the previous version, image and target transforms were independent,
+    # which was unsafe for random geometric augmentations.
+    # We now apply joint transforms first, then optional image-only transforms,
+    # and finally encode the mask into Cityscapes trainIds.
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         image = Image.open(self.images[idx]).convert("RGB")
         mask = Image.open(self.masks[idx])
 
-        if self.transform:
-            image = self.transform(image)
+        # geometric transforms applied to both
+        if self.joint_transform:
+            image, mask = self.joint_transform(image, mask)
+
+        # extra transforms only on image or mask if needed
+        if self.image_transform:
+            image = self.image_transform(image)
         if self.target_transform:
             mask = self.target_transform(mask)
 

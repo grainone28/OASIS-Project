@@ -24,7 +24,9 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from data.cityscapes import CityscapesDataset
-from data.transforms import get_val_transform, get_mask_transform
+from data.transforms import get_val_joint_transform  # NOTE:
+# Switched from separate image/mask transforms to a joint validation transform
+# to keep preprocessing consistent with the segmentation target.
 from utils.metrics import MeanIoUMeter
 from utils.logger import setup_logging
 
@@ -131,12 +133,15 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Device: {device}")
 
+    # Validation now uses the joint image-mask transform pipeline.
+    # This guarantees that resizing is applied consistently to both inputs and targets
+    # before mIoU computation.
+    img_size = tuple(cfg["dataset"]["image_size"])
     dataset = CityscapesDataset(
         root=cfg["dataset"]["root"],
         split="val",
-        transform=get_val_transform(tuple(cfg["dataset"]["image_size"])),
-        target_transform=get_mask_transform(tuple(cfg["dataset"]["image_size"])),
-    )
+        joint_transform=get_val_joint_transform(img_size),
+        )
     loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.workers)
 
     model = build_model(args.model, cfg, args.checkpoint, device)
