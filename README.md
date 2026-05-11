@@ -1,5 +1,4 @@
-# 🚗 Comprehensive Road Scene Understanding & Anomaly Segmentation
-### VANDAL Lab — Object Detection and Segmentation Project
+###Out-of-distribution Awareness for Semantic Image Segmentation
 
 ---
 
