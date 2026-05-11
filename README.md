@@ -1,4 +1,4 @@
-# Out-of-distribution Awareness for Semantic Image Segmentation
+# Out-of-distribution Analisys for Semantic Image Segmentation
 
 ---
 
