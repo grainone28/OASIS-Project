@@ -41,6 +41,4 @@ logs/
 runs/
 
 # --- Data (too large for git) ---
-data/cityscapes/
-data/fishyscapes/
-data/smiyc/
+data/
