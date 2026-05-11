@@ -41,13 +41,8 @@ logs/
 runs/
 
 # --- Data (too large for git) ---
-# Escludi le sottocartelle dei dataset (dove ci sono le immagini)
+# Invece di data/ (che blocca tutto), scrivi:
 data/cityscapes/
 data/fishyscapes/
 data/smiyc/
-data/*.zip
-data/*.tar
-data/*.tar.gz
-
-**/__pycache__/
-
+data/__pycache__/
