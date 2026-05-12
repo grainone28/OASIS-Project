@@ -82,7 +82,7 @@ def load_ood_dataset(dataset_name, cfg):
 
 def compute_scores(model, dataloader, device, model_name, cfg, temperature, cache_dir, save_vis=False):
     """Run inference (or load cache) and compute anomaly scores."""
-    from torch.cuda.amp import autocast
+    from torch import autocast
     use_cache = cfg["logits_cache"]["use_cache"]
     cache_dir  = Path(cfg["logits_cache"]["save_dir"])
 
@@ -98,7 +98,7 @@ def compute_scores(model, dataloader, device, model_name, cfg, temperature, cach
             if use_cache and cache_path.exists():
                 logits = torch.from_numpy(np.load(str(cache_path)))
             else:
-                with autocast():
+                with autocast(device_type=device.type):
                     logits = model(images).cpu()
                 np.save(str(cache_path), logits.numpy())
 
@@ -109,7 +109,7 @@ def compute_scores(model, dataloader, device, model_name, cfg, temperature, cach
                 pred_masks  = torch.from_numpy(np.load(str(cache_path)))
                 pred_logits = torch.from_numpy(np.load(str(eomt_logits_path)))
             else:
-                with autocast():
+                with autocast(device_type=device.type):
                     out = model(images)
                 pred_masks  = out["pred_masks"].cpu()
                 pred_logits = out["pred_logits"].cpu()
