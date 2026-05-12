@@ -114,7 +114,7 @@ def compute_scores(model, dataloader, device, model_name, method_name, cfg, temp
             elif method_name == "maxlogit":
                 scores = maxlogit_anomaly_score(logits, temperature=temperature)
             elif method_name == "maxentropy":
-                scores = maxentropy_anomaly_score(logits) 
+                scores = maxentropy_anomaly_score(logits, temperature=temperature) 
             else:
                 raise ValueError(f"Unknown method for ERFNet: {method_name}")
 
