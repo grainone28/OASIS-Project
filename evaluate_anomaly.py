@@ -35,6 +35,7 @@ from data.transforms import get_val_transform, get_mask_transform
 from utils.anomaly_methods import msp_anomaly_score, rba_anomaly_score
 from utils.metrics import evaluate_anomaly
 from utils.logger import setup_logging
+from utils.visualization import visualize_prediction
 
 
 def load_model(model_name, ckpt_path, cfg, device):
@@ -109,7 +110,7 @@ def run_inference_and_cache(model, dataloader, device, model_name, cache_dir: Pa
     return all_labels
 
 
-def compute_scores(model, dataloader, device, model_name, cfg, temperature, cache_dir):
+def compute_scores(model, dataloader, device, model_name, cfg, temperature, cache_dir, save_vis=False):
     """Run inference (or load cache) and compute anomaly scores."""
     from torch.cuda.amp import autocast
     use_cache = cfg["logits_cache"]["use_cache"]
@@ -149,6 +150,30 @@ def compute_scores(model, dataloader, device, model_name, cfg, temperature, cach
 
         all_scores.append(scores.numpy().flatten())
         all_labels.append(labels.numpy().flatten())
+        
+        
+        # --- BLOCCO VISUALIZZAZIONE ---
+        # Salviamo solo le prime 5 immagini per non riempire il disco!
+        if save_vis and idx < 5:
+            # Calcoliamo la maschera semantica predetta
+            if model_name == "erfnet":
+                pred_mask = logits.argmax(dim=1).squeeze().numpy()
+            else:
+                pred_mask = pred_masks.argmax(dim=1).squeeze().numpy() # o equivalente per EoMT
+            
+            # Creiamo la cartella per i salvataggi
+            vis_dir = Path("results/visualizations") / f"{model_name}_{cfg['methods'].get('active_method', 'msp')}"
+            vis_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Chiamiamo la tua bellissima funzione
+            visualize_prediction(
+                image=images[0], 
+                gt_mask=labels[0].numpy(), 
+                pred_mask=pred_mask,
+                anomaly_score=scores.squeeze().numpy() if torch.is_tensor(scores) else scores.squeeze(),
+                title=f"Score Map (T={temperature})",
+                save_path=str(vis_dir / f"{idx:05d}.png")
+            )
 
     return np.concatenate(all_scores), np.concatenate(all_labels)
 
@@ -160,6 +185,7 @@ def main():
     parser.add_argument("--model",    choices=["erfnet", "eomt"], default="erfnet")
     parser.add_argument("--dataset",  choices=["fishyscapes", "smiyc_anomaly", "smiyc_obstacle"],
                         default="fishyscapes")
+    parser.add_argument("--save-vis", action="store_true", help="Save Heatmaps of the first 5 images")
     parser.add_argument("--temperature",        type=float, default=1.0)
     parser.add_argument("--temperature-search", action="store_true",
                         help="Run grid search over temperature values")
@@ -196,7 +222,7 @@ def main():
 
         for T in temperatures:
             scores, labels = compute_scores(model, dataloader, device, args.model,
-                                            cfg, T, cache_dir)
+                                            cfg, T, cache_dir, save_vis=args.save_vis)
             results = evaluate_anomaly(scores, labels)
             logger.info(f"T={T:.2f} | AuPRC={results['AuPRC']:.4f} | FPR95={results['FPR95']:.4f}")
             if results["FPR95"] < best_fpr95:
@@ -207,7 +233,7 @@ def main():
 
     # ── Single evaluation ─────────────────────────────────────────────────────
     scores, labels = compute_scores(model, dataloader, device, args.model,
-                                    cfg, args.temperature, cache_dir)
+                                    cfg, args.temperature, cache_dir, save_vis=args.save_vis)
 
     results = evaluate_anomaly(scores, labels)
 
