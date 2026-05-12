@@ -32,7 +32,12 @@ from tqdm import tqdm
 from data.cityscapes import CityscapesDataset
 from data.datasets_ood import FishyscapesLostAndFound, SMIYCDataset
 from data.transforms import get_val_transform, get_mask_transform
-from utils.anomaly_methods import msp_anomaly_score, rba_anomaly_score
+from utils.anomaly_methods import (
+    msp_anomaly_score, 
+    rba_anomaly_score, 
+    maxlogit_anomaly_score, 
+    maxentropy_anomaly_score
+)
 from utils.metrics import evaluate_anomaly
 from utils.logger import setup_logging
 from utils.visualization import visualize_prediction
@@ -80,11 +85,12 @@ def load_ood_dataset(dataset_name, cfg):
 
 
 
-def compute_scores(model, dataloader, device, model_name, cfg, temperature, cache_dir, save_vis=False):
+def compute_scores(model, dataloader, device, model_name, method_name, cfg, temperature, cache_dir, save_vis=False):
     """Run inference (or load cache) and compute anomaly scores."""
     from torch import autocast
     use_cache = cfg["logits_cache"]["use_cache"]
-    cache_dir  = Path(cfg["logits_cache"]["save_dir"])
+    
+    # Rimosso il cache_dir sovrascritto che causava collisioni!
 
     all_scores, all_labels = [], []
 
@@ -102,7 +108,15 @@ def compute_scores(model, dataloader, device, model_name, cfg, temperature, cach
                     logits = model(images).cpu()
                 np.save(str(cache_path), logits.numpy())
 
-            scores = msp_anomaly_score(logits, temperature=temperature)  # [B, H, W]
+            # --- ROUTING DEL METODO ---
+            if method_name == "msp":
+                scores = msp_anomaly_score(logits, temperature=temperature)
+            elif method_name == "maxlogit":
+                scores = maxlogit_anomaly_score(logits, temperature=temperature)
+            elif method_name == "maxentropy":
+                scores = maxentropy_anomaly_score(logits) 
+            else:
+                raise ValueError(f"Unknown method for ERFNet: {method_name}")
 
         else:  # EoMT + RbA
             if use_cache and cache_path.exists() and eomt_logits_path.exists():
@@ -191,7 +205,7 @@ def main():
         best_fpr95, best_T = float("inf"), 1.0
 
         for T in temperatures:
-            scores, labels = compute_scores(model, dataloader, device, args.model,
+            scores, labels = compute_scores(model, dataloader, device, args.model, args.method,
                                             cfg, T, cache_dir, save_vis=args.save_vis)
             results = evaluate_anomaly(scores, labels)
             logger.info(f"T={T:.2f} | AuPRC={results['AuPRC']:.4f} | FPR95={results['FPR95']:.4f}")
@@ -202,7 +216,7 @@ def main():
         return
 
     # ── Single evaluation ─────────────────────────────────────────────────────
-    scores, labels = compute_scores(model, dataloader, device, args.model,
+    scores, labels = compute_scores(model, dataloader, device, args.model, args.method,
                                     cfg, args.temperature, cache_dir, save_vis=args.save_vis)
 
     results = evaluate_anomaly(scores, labels)
