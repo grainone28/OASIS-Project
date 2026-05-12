@@ -59,55 +59,25 @@ def load_ood_dataset(dataset_name, cfg):
     if dataset_name == "fishyscapes":
         return FishyscapesLostAndFound(
             root=cfg["dataset"]["fishyscapes_root"],
-            transform=transform,
+            image_transform=transform,
         )
     elif dataset_name == "smiyc_anomaly":
         return SMIYCDataset(
             root=cfg["dataset"]["smiyc_root"],
             subset="RoadAnomaly21",
-            transform=transform,
+            image_transform=transform,
         )
     elif dataset_name == "smiyc_obstacle":
         return SMIYCDataset(
             root=cfg["dataset"]["smiyc_root"],
             subset="RoadObstacle21",
-            transform=transform,
+            image_transform=transform,
         )
     else:
         raise ValueError(f"Unknown OoD dataset: {dataset_name}")
 
 
-@torch.no_grad()
-def run_inference_and_cache(model, dataloader, device, model_name, cache_dir: Path, use_amp=True):
-    """
-    Run model forward pass, cache raw logits as .npy files.
-    Returns all logits stacked and labels.
-    """
-    from torch.cuda.amp import autocast
-    cache_dir.mkdir(parents=True, exist_ok=True)
 
-    all_scores, all_labels = [], []
-
-    for idx, (images, labels) in enumerate(tqdm(dataloader, desc="Inference")):
-        cache_path = cache_dir / f"{idx:05d}.npy"
-
-        if cache_path.exists():
-            logits = torch.from_numpy(np.load(str(cache_path)))
-        else:
-            images = images.to(device)
-            with autocast(enabled=use_amp):
-                if model_name == "erfnet":
-                    logits = model(images).cpu()
-                else:  # eomt
-                    out = model(images)
-                    # For caching convenience, store pred_masks as the "logits"
-                    logits = out["pred_masks"].cpu()
-
-            np.save(str(cache_path), logits.numpy())
-
-        all_labels.append(labels.numpy())
-
-    return all_labels
 
 
 def compute_scores(model, dataloader, device, model_name, cfg, temperature, cache_dir, save_vis=False):
