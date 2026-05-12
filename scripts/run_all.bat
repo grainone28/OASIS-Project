@@ -1,4 +1,5 @@
 @echo off
+cd ..
 echo ========================================================
 echo   OASIS PROJECT - COMPLETE EVALUATION AUTOMATION
 echo ========================================================
