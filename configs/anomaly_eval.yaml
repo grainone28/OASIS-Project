@@ -19,6 +19,25 @@ checkpoints:
 methods:
   msp:
     enabled: true                 # Maximum Softmax Probability (Step 6 & 7)
+    temperature_scaling:
+      enabled: true
+      t_min: 0.5
+      t_max: 2.0
+      t_step: 0.05
+  maxlogit:
+    enabled: true
+    temperature_scaling:
+      enabled: true
+      t_min: 0.5
+      t_max: 2.0
+      t_step: 0.05
+  maxentropy:
+    enabled: true
+    temperature_scaling:
+      enabled: true
+      t_min: 0.5
+      t_max: 2.0
+      t_step: 0.05
   rba:
     enabled: true                 # Rejected by All (Step 8)
     temperature_scaling:

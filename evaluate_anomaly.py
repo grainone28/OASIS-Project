@@ -156,7 +156,7 @@ def compute_scores(model, dataloader, device, model_name, cfg, temperature, cach
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config",   default="configs/anomaly_eval.yaml")
-    parser.add_argument("--method",   choices=["msp", "rba"], default="msp")
+    parser.add_argument("--method",  choices=["msp", "maxlogit", "maxentropy", "rba"], default="msp")    
     parser.add_argument("--model",    choices=["erfnet", "eomt"], default="erfnet")
     parser.add_argument("--dataset",  choices=["fishyscapes", "smiyc_anomaly", "smiyc_obstacle"],
                         default="fishyscapes")

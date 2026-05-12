@@ -92,6 +92,54 @@ def rba_anomaly_score(
     return 1.0 - max_query_score                             # [B, H, W]
 
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MaxLogit & MaxEntropy (Step 8 — Metodi Post-Hoc)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def maxlogit_anomaly_score(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
+    """
+    Calcola l'anomaly score basato sul Maximum Logit.
+    Score = - max(logits / T)
+    Valori più alti indicano maggiore probabilità di anomalia.
+    """
+    scaled_logits = logits / temperature
+    max_logits = scaled_logits.max(dim=1).values
+    return -max_logits
+
+def maxentropy_anomaly_score(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
+    """
+    Calcola l'anomaly score basato sull'Entropia di Shannon.
+    Score = - sum(p * log(p))
+    Maggiore è l'entropia, più il modello è incerto (anomalia).
+    """
+    scaled_logits = logits / temperature
+    probs = F.softmax(scaled_logits, dim=1)
+    # Aggiungo 1e-12 per evitare logaritmo di zero (NaN)
+    entropy = -torch.sum(probs * torch.log(probs + 1e-12), dim=1)
+    return entropy
+
+def maxlogit_from_logits_file(path: str, temperature: float = 1.0) -> np.ndarray:
+    """Load cached logits from disk and compute MaxLogit scores."""
+    if path.endswith(".npy"):
+        logits = torch.from_numpy(np.load(path))
+    else:
+        logits = torch.load(path, map_location="cpu")
+    scores = maxlogit_anomaly_score(logits, temperature=temperature)
+    return scores.numpy()
+
+def maxentropy_from_logits_file(path: str, temperature: float = 1.0) -> np.ndarray:
+    """Load cached logits from disk and compute MaxEntropy scores."""
+    if path.endswith(".npy"):
+        logits = torch.from_numpy(np.load(path))
+    else:
+        logits = torch.load(path, map_location="cpu")
+    scores = maxentropy_anomaly_score(logits, temperature=temperature)
+    return scores.numpy()
+
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Temperature Scaling Grid Search
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -137,10 +185,12 @@ def grid_search_temperature(
         for path in logit_files:
             if method == "msp":
                 scores = msp_from_logits_file(path, temperature=T)
+            elif method == "maxlogit":
+                scores = maxlogit_from_logits_file(path, temperature=T)
+            elif method == "maxentropy":
+                scores = maxentropy_from_logits_file(path, temperature=T)
             elif method == "rba":
-                # Note: rba_from_logits_file function will be added later.
-                # Raising an error to prevent silent fallbacks to MSP.
-                raise NotImplementedError("The rba_from_logits_file function is not yet implemented!")
+                raise NotImplementedError("Caching for RbA requires both masks and logits, use the loop in evaluate_anomaly.py instead of this function.")
             else:
                 raise ValueError(f"Method {method} not recognized.")
             
