@@ -28,6 +28,9 @@ from models.lora import inject_lora, count_trainable_params
 from utils.metrics import MeanIoUMeter
 from utils.logger import setup_logging, MetricLogger
 
+# Integration of the neutral post-processing module tested in step 1
+from utils.postprocessing import queries_to_segmentation_fast
+
 
 def build_optimizer(model, cfg):
     lr = cfg["train"]["learning_rate"]
@@ -52,40 +55,33 @@ def build_scheduler(optimizer, cfg, steps_per_epoch: int):
 
 def panoptic_loss(outputs, targets, num_classes, ignore_index=255):
     """
-    Simplified per-pixel cross-entropy loss using the EoMT mask predictions.
-    For each pixel, we pick the query with highest mask score and compute
-    cross-entropy between that query's class and the ground-truth.
-
-    A production implementation would use Hungarian matching (bipartite matching)
-    as in Mask2Former; this simplified version is suitable for fine-tuning experiments.
+    Per-pixel cross-entropy loss using the EoMT mask predictions.
+    Converts DETR-style query predictions to dense segmentation logits
+    using the fast vectorized mapping.
     """
     pred_masks  = outputs["pred_masks"]   # [B, Q, H, W]
     pred_logits = outputs["pred_logits"]  # [B, Q, C+1]
 
-    # Derive per-pixel class predictions
-    mask_probs   = torch.sigmoid(pred_masks)      # [B, Q, H, W]
-    class_probs  = torch.softmax(pred_logits[..., :-1], dim=-1)  # [B, Q, C]
-    class_preds  = class_probs.argmax(dim=-1)     # [B, Q]
-
-    B, Q, H, W = mask_probs.shape
-    best_query  = mask_probs.argmax(dim=1)        # [B, H, W]
+    B, Q, H, W = pred_masks.shape
     device = pred_masks.device
 
-    preds = class_preds[
-        torch.arange(B, device=device).view(B, 1, 1).expand(B, H, W),
-        best_query
-    ]  # [B, H, W]
+    # 1. Isolate class logits, excluding the last column (no-object) to get exactly C=20 classes
+    logits_cls = pred_logits[..., :-1]  # [B, Q, C]
 
-    # Aggregate query logits to pixel level for cross-entropy
-    # pixel_logits[b, c, h, w] = logit of best query for class c at pixel (h, w)
-    best_query_exp = best_query.unsqueeze(1).unsqueeze(-1)  # [B, 1, H, W] placeholder
-    # Select logits of the best query for each pixel
+    # 2. Use the fast function logic to map queries to pixels efficiently
+    mask_probs = torch.sigmoid(pred_masks)
+    
+    # 3. Aggregate query logits to pixel level for the classic [B, C, H, W] shape
+    # Identify the query index with the highest presence score for each pixel
+    weighted_masks = (mask_probs > 0.5).float() * torch.softmax(logits_cls, dim=-1).max(dim=-1)[0].unsqueeze(-1).unsqueeze(-1)
+    best_query = weighted_masks.argmax(dim=1)  # [B, H, W]
+
+    # Extract the logit vectors associated with the best query pixel-wise
     best_q_flat = best_query.view(B, -1)  # [B, H*W]
-    logits_flat  = pred_logits[:, :, :-1]  # [B, Q, C]
-    pixel_logits = logits_flat[
+    pixel_logits = logits_cls[
         torch.arange(B, device=device).unsqueeze(1).expand(B, H * W),
         best_q_flat,
-    ].view(B, H, W, -1).permute(0, 3, 1, 2)  # [B, C, H, W]
+    ].view(B, H, W, num_classes).permute(0, 3, 1, 2)  # [B, C, H, W]
 
     loss = nn.functional.cross_entropy(
         pixel_logits, targets, ignore_index=ignore_index
@@ -143,16 +139,18 @@ def validate(model, loader, device, num_classes, use_amp=True):
         with autocast(enabled=use_amp):
             outputs = model(images)
 
-        pred_masks  = torch.sigmoid(outputs["pred_masks"])
-        class_probs = torch.softmax(outputs["pred_logits"][..., :-1], dim=-1)
-        class_preds = class_probs.argmax(dim=-1)
-        B, Q, H, W  = pred_masks.shape
-        best_query  = pred_masks.argmax(dim=1)
-        device_     = pred_masks.device
-        preds = class_preds[
-            torch.arange(B, device=device_).view(B, 1, 1).expand(B, H, W),
-            best_query
-        ]
+        # Apply the fast vectorized function to convert query masks and logits 
+        # into dense final class maps [B, H, W] ready for mIoU computation.
+        # Exclude the background/no-object class index.
+        pred_masks_sig = torch.sigmoid(outputs["pred_masks"])
+        pred_logits_cls = outputs["pred_logits"][..., :-1]
+
+        preds = queries_to_segmentation_fast(
+            pred_masks=pred_masks_sig,
+            pred_logits=pred_logits_cls,
+            threshold=0.5
+        ) # Output: [B, H, W] ready for mIoU calculation
+
         meter.update(preds, targets)
 
     return meter.compute()

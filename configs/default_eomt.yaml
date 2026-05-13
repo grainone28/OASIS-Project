@@ -6,7 +6,7 @@
 dataset:
   name: cityscapes
   root: ./data/cityscapes          # path to Cityscapes root (contains leftImg8bit/ and gtFine/)
-  num_classes: 19
+  num_classes: 20
   image_size: [512, 1024]          # [H, W]
 
 # --- Model ---
@@ -22,8 +22,8 @@ lora:
   alpha: 16                        # scaling factor: LoRA weight = (alpha/r) * BA
   dropout: 0.05
   target_modules:                  # which attention projections to inject LoRA into
-    - q_proj
-    - v_proj
+    - qkv
+    - proj
 
 # --- Training ---
 train:
