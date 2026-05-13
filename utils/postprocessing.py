@@ -1,6 +1,6 @@
 """
 Post-processing utilities for EoMT model outputs.
-Converts DETR-style query predictions to dense segmentation maps.
+Converts DETR-style query predictions to dense segmentation maps
 
 Owner: Membro 3 (Model Architect)
 Usage: Both Membro 2 (Evaluator) and Membro 3 can import from this file.
@@ -71,7 +71,7 @@ def queries_to_segmentation(pred_masks, pred_logits, threshold=0.5, method='max'
 
 def queries_to_segmentation_fast(pred_masks, pred_logits, threshold=0.5):
     """
-    Faster vectorized version using torch operations.
+    Faster vectorized version using torch operations.g
     
     Args:
         pred_masks: Tensor [B, Q, H, W]

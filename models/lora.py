@@ -1,7 +1,7 @@
 """
 models/lora.py
 Low-Rank Adaptation (LoRA) for transformer attention layers.
-Reference: Hu et al., "LoRA: Low-Rank Adaptation of Large Language Models", ICLR 2022.
+Reference: Hu et al., "LoRA: Low-Rank Adaptation of Large Language Models", ICLR 2022
 
 How it works:
   Original weight W ∈ R^{d×k} is frozen.
