@@ -1,6 +1,27 @@
 """
 utils/metrics.py
 Evaluation metrics for semantic segmentation and anomaly detection.
+
+──────────────────────────────────────────────────────────────────────────────
+MODIFICHE (Step 4)
+──────────────────────────────────────────────────────────────────────────────
+Una sola modifica chirurgica in `MeanIoUMeter.update`:
+
+  Prima, dopo `pred = pred[mask]`, c'era un singolo
+      pred = np.clip(pred, 0, self.num_classes - 1)
+  che schiacciava qualunque pred == ignore_index (255) sulla classe
+  `num_classes - 1` (= 18, "bicycle"), gonfiando i falsi positivi di quella
+  classe. Effetto invisibile finché tutte le predizioni sono in [0, 18],
+  ma rompe il calcolo non appena si introduce un remap che produce 255
+  (caso COCO → Cityscapes per le classi senza equivalente).
+
+  Ora i pixel con pred == ignore_index vengono esclusi dalla confusion
+  matrix prima del clip — convenzione standard di MMSegmentation. Vedi
+  il docstring di `update` per i dettagli.
+
+Il resto del file (`compute_auprc`, `compute_fpr95`, `compute_auroc`,
+`evaluate_anomaly`) non è stato toccato.
+──────────────────────────────────────────────────────────────────────────────
 """
 
 import numpy as np
@@ -32,14 +53,33 @@ class MeanIoUMeter:
         Args:
             pred:   [B, H, W] — predicted class indices (long tensor)
             target: [B, H, W] — ground-truth class indices (long tensor)
+
+        Convenzione su `ignore_index`:
+          - target == ignore_index → pixel completamente escluso (void GT).
+          - pred  == ignore_index → pixel escluso anch'esso (predizione
+            "non-classe", tipica dopo un remap COCO→Cityscapes per classi
+            COCO che non hanno equivalente Cityscapes). È la convenzione
+            standard di MMSegmentation: un modello che produce ignore non
+            viene né premiato né penalizzato esplicitamente. Per il modello
+            COCO questo significa che la mIoU è calcolata sulla porzione
+            di pixel effettivamente predicibili nel suo spazio classi.
         """
         pred   = pred.cpu().numpy().flatten().astype(np.int64)
         target = target.cpu().numpy().flatten().astype(np.int64)
 
-        mask = target != self.ignore_index
-        pred, target = pred[mask], target[mask]
+        # Escludi pixel con GT void.
+        valid = target != self.ignore_index
+        pred, target = pred[valid], target[valid]
 
-        # Clip to valid range to avoid index errors
+        # ── MODIFICA Step 4 ────────────────────────────────────────────────
+        # Escludi pixel con pred = ignore_index (introdotti dal remap
+        # COCO→Cityscapes). Senza questa riga, il np.clip sottostante li
+        # mapperebbe a `num_classes - 1` falsificando la confusion matrix.
+        valid_pred = pred != self.ignore_index
+        pred, target = pred[valid_pred], target[valid_pred]
+        # ───────────────────────────────────────────────────────────────────
+
+        # Clamp difensivo per eventuali id fuori range residui.
         pred = np.clip(pred, 0, self.num_classes - 1)
 
         indices = self.num_classes * target + pred
