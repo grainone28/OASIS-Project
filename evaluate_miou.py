@@ -17,40 +17,46 @@ Usage:
 import argparse
 import yaml
 from pathlib import Path
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from data.cityscapes import CityscapesDataset
+from data.cityscapes import (
+    CityscapesDataset,
+    build_coco_to_cityscapes_lut,
+    remap_coco_to_cityscapes,
+)
 from data.transforms import get_val_transform, get_mask_transform
 from utils.metrics import MeanIoUMeter
 from utils.logger import setup_logging
 
 
-# ── COCO → Cityscapes class index remapping (Step 4 key challenge) ───────────
-# EoMT-COCO outputs 80 COCO classes; we map the 19 Cityscapes trainIds
-# to the corresponding COCO category index.
-CITYSCAPES_TO_COCO = {
-    0: 43,   # road → pavement
-    1: 49,   # sidewalk → pavement (approximate)
-    11: 0,   # person → person
-    13: 2,   # car → car
-    14: 7,   # truck → truck
-    15: 5,   # bus → bus
-    18: 1,   # bicycle → bicycle
-    # Classes with no COCO equivalent will have mIoU ≈ 0
-}
+def build_model(
+    model_name: str,
+    cfg: dict,
+    checkpoint: str,
+    device: torch.device,
+    num_classes_override: Optional[int] = None,
+):
+    # Il numero di classi del *modello* può differire da quello del dataset
+    # (es. checkpoint COCO con 133 classi su Cityscapes con 19 trainId).
+    num_classes = num_classes_override or cfg["dataset"]["num_classes"]
 
-
-def build_model(model_name: str, cfg: dict, checkpoint: str, device: torch.device):
     if model_name == "eomt":
-        from models.eomt import build_eomt
-        model = build_eomt(cfg)
+        from models.eomt import EoMT
+        model = EoMT(
+            backbone_name  = cfg["model"].get("backbone", "vit_base_patch14_dinov2"),
+            num_queries    = cfg["model"].get("num_queries", 100),
+            num_classes    = num_classes,
+            freeze_layers  = cfg["model"].get("freeze_backbone_layers", 9),
+            image_size     = tuple(cfg["dataset"]["image_size"]),
+        )
     elif model_name == "erfnet":
         from models.erfnet import ERFNet
-        model = ERFNet(num_classes=cfg["dataset"]["num_classes"])
+        model = ERFNet(num_classes=num_classes)
     else:
         raise ValueError(f"Unknown model: {model_name}")
 
@@ -58,8 +64,12 @@ def build_model(model_name: str, cfg: dict, checkpoint: str, device: torch.devic
         state = torch.load(checkpoint, map_location=device)
         if "model_state_dict" in state:
             state = state["model_state_dict"]
-        model.load_state_dict(state, strict=False)
+        missing, unexpected = model.load_state_dict(state, strict=False)
         print(f"Loaded checkpoint: {checkpoint}")
+        if missing:
+            print(f"  [warn] missing keys   : {len(missing)} (first: {missing[:3]})")
+        if unexpected:
+            print(f"  [warn] unexpected keys: {len(unexpected)} (first: {unexpected[:3]})")
 
     return model.to(device).eval()
 
@@ -68,35 +78,33 @@ def build_model(model_name: str, cfg: dict, checkpoint: str, device: torch.devic
 def evaluate(model, dataloader, device, model_name, num_classes, is_coco=False):
     meter = MeanIoUMeter(num_classes=num_classes)
 
+    # LUT COCO → Cityscapes calcolata una volta sola se serve
+    coco_lut = build_coco_to_cityscapes_lut().to(device) if is_coco else None
+
     for images, targets in tqdm(dataloader, desc="Evaluating"):
         images  = images.to(device)
         targets = targets.to(device)
 
         if model_name == "eomt":
             outputs = model(images)
-            logits = outputs["pred_masks"]             # [B, Q, H, W]
-            class_logits = outputs["pred_logits"]      # [B, Q, C+1]
+            mask_logits  = outputs["pred_masks"]    # [B, Q, H, W]
+            class_logits = outputs["pred_logits"]   # [B, Q, C+1]
 
-            # Convert mask-based output → per-pixel class prediction
-            # For each pixel, find the query with highest mask score,
-            # then assign that query's predicted class.
-            mask_probs  = torch.sigmoid(logits)        # [B, Q, H, W]
-            class_probs = torch.softmax(class_logits[..., :-1], dim=-1)  # [B, Q, C]
-            class_preds = class_probs.argmax(dim=-1)   # [B, Q]
-
-            B, Q, H, W = mask_probs.shape
-            best_query  = mask_probs.argmax(dim=1)     # [B, H, W]
-            preds = class_preds[
-                torch.arange(B, device=device).view(B, 1, 1).expand(B, H, W),
-                best_query
-            ]                                          # [B, H, W]
+            # Semantic inference (Mask2Former-style): per ogni pixel
+            # combina mask-prob e class-prob su tutte le query, poi argmax.
+            #   sem_logits[b,c,h,w] = Σ_q σ(mask[b,q,h,w]) · softmax(cls[b,q])[c]
+            # Confrontato con il "best query → its class", questo sfrutta
+            # tutte le query e dà mappe più pulite.
+            mask_probs  = torch.sigmoid(mask_logits)                       # [B, Q, H, W]
+            class_probs = torch.softmax(class_logits, dim=-1)[..., :-1]    # [B, Q, C]
+            sem_logits  = torch.einsum("bqc,bqhw->bchw", class_probs, mask_probs)
+            preds = sem_logits.argmax(dim=1)        # [B, H, W] — id nello spazio del modello
 
             if is_coco:
-                # Remap COCO prediction indices to Cityscapes trainIds
-                remapped = torch.full_like(preds, fill_value=255)
-                for cs_id, coco_id in CITYSCAPES_TO_COCO.items():
-                    remapped[preds == coco_id] = cs_id
-                preds = remapped
+                # Rimappa dallo spazio COCO-Panoptic (133) allo spazio Cityscapes (19).
+                # Le classi COCO senza corrispondente diventano 255 e vengono
+                # ignorate dal MeanIoUMeter.
+                preds = remap_coco_to_cityscapes(preds, lut=coco_lut)
 
         else:  # ERFNet
             logits = model(images)                     # [B, C, H, W]
@@ -119,7 +127,11 @@ def main():
     parser.add_argument("--checkpoint", default="")
     parser.add_argument("--model",      choices=["eomt", "erfnet"], default="eomt")
     parser.add_argument("--is-coco",    action="store_true",
-                        help="Use COCO→Cityscapes class remapping")
+                        help="Il checkpoint è in spazio COCO-Panoptic; "
+                             "applica remap COCO→Cityscapes prima della mIoU.")
+    parser.add_argument("--coco-num-classes", type=int, default=133,
+                        help="Numero di classi del checkpoint COCO "
+                             "(133 = COCO-Panoptic, 80 = COCO-Instance).")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--workers",    type=int, default=4)
     args = parser.parse_args()
@@ -139,16 +151,23 @@ def main():
     )
     loader = DataLoader(dataset, batch_size=args.batch_size, num_workers=args.workers)
 
-    model = build_model(args.model, cfg, args.checkpoint, device)
+    # Se è un checkpoint COCO, il modello DEVE essere costruito con le classi
+    # COCO, non con 19 — altrimenti la testa class_embed non corrisponde
+    # e load_state_dict(strict=False) la lascia con pesi random.
+    model_num_classes = args.coco_num_classes if args.is_coco else None
+    model = build_model(args.model, cfg, args.checkpoint, device,
+                        num_classes_override=model_num_classes)
 
     logger.info(f"Running evaluation: model={args.model}, COCO-remap={args.is_coco}")
+    # La mIoU si calcola SEMPRE nello spazio Cityscapes (19 classi).
     results = evaluate(model, loader, device, args.model,
                        cfg["dataset"]["num_classes"], is_coco=args.is_coco)
 
     logger.info(f"mIoU     : {results['mIoU']:.4f}")
     logger.info(f"Pixel Acc: {results['pixel_acc']:.4f}")
-    for i, iou in enumerate(results["per_class_iou"]):
-        logger.info(f"  Class {i:02d}: {iou:.4f}")
+    from data.cityscapes import CITYSCAPES_CLASSES
+    for name, iou in zip(CITYSCAPES_CLASSES, results["per_class_iou"]):
+        logger.info(f"  {name:>14s}: {iou:.4f}")
 
 
 if __name__ == "__main__":
