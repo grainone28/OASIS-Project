@@ -1,6 +1,6 @@
 """
 Post-processing utilities for EoMT model outputs.
-Converts DETR-style query predictions to dense segmentation maps
+Converts DETR-style query predictions to dense segmentation maps.
 
 Owner: Membro 3 (Model Architect)
 Usage: Both Membro 2 (Evaluator) and Membro 3 can import from this file.

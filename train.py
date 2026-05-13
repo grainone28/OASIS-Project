@@ -1,17 +1,9 @@
 """
 train.py — Step 5: Parameter-Efficient Fine-Tuning of EoMT
 ===========================================================
-Fine-tunes the COCO-pretrained EoMT on Cityscapes using:
-  1. Backbone freezing (freeze first N ViT blocks)
-  2. Automatic Mixed Precision (AMP / FP16)
-  3. Low-Rank Adaptation (LoRA) on attention projections
-
-Usage:
-  python train.py --config configs/default_eomt.yaml
 """
 
 import argparse
-import os
 import yaml
 from pathlib import Path
 
@@ -27,15 +19,15 @@ from models.eomt import build_eomt
 from models.lora import inject_lora, count_trainable_params
 from utils.metrics import MeanIoUMeter
 from utils.logger import setup_logging, MetricLogger
-
-# Integration of the neutral post-processing module tested in step 1
 from utils.postprocessing import queries_to_segmentation_fast
 
 
+# ──────────────────────────────────────────────────────────
+# Optimizer / Scheduler
+# ──────────────────────────────────────────────────────────
 def build_optimizer(model, cfg):
     lr = cfg["train"]["learning_rate"]
     wd = cfg["train"]["weight_decay"]
-    # Only pass parameters that require gradients
     params = [p for p in model.parameters() if p.requires_grad]
     return torch.optim.AdamW(params, lr=lr, weight_decay=wd)
 
@@ -53,42 +45,31 @@ def build_scheduler(optimizer, cfg, steps_per_epoch: int):
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
 
+# ──────────────────────────────────────────────────────────
+# FIXED PANOPTIC LOSS (CORRETTA CON NORMALIZZAZIONE)
+# ──────────────────────────────────────────────────────────
 def panoptic_loss(outputs, targets, num_classes, ignore_index=255):
-    """
-    Per-pixel cross-entropy loss using the EoMT mask predictions.
-    Converts DETR-style query predictions to dense segmentation logits
-    using the fast vectorized mapping.
-    """
     pred_masks  = outputs["pred_masks"]   # [B, Q, H, W]
     pred_logits = outputs["pred_logits"]  # [B, Q, C+1]
 
-    B, Q, H, W = pred_masks.shape
-    device = pred_masks.device
+    mask_cls = torch.softmax(pred_logits, dim=-1)[..., :-1]  # [B, Q, C]
+    mask_pred = torch.sigmoid(pred_masks)                    # [B, Q, H, W]
 
-    # 1. Isolate class logits, excluding the last column (no-object) to get exactly C=20 classes
-    logits_cls = pred_logits[..., :-1]  # [B, Q, C]
+    dense_probs = torch.einsum("bqc,bqhw->bchw", mask_cls, mask_pred)
 
-    # 2. Use the fast function logic to map queries to pixels efficiently
-    mask_probs = torch.sigmoid(pred_masks)
-    
-    # 3. Aggregate query logits to pixel level for the classic [B, C, H, W] shape
-    # Identify the query index with the highest presence score for each pixel
-    weighted_masks = (mask_probs > 0.5).float() * torch.softmax(logits_cls, dim=-1).max(dim=-1)[0].unsqueeze(-1).unsqueeze(-1)
-    best_query = weighted_masks.argmax(dim=1)  # [B, H, W]
+    # 🔥 normalizzazione fondamentale
+    dense_probs = dense_probs / (dense_probs.sum(dim=1, keepdim=True) + 1e-6)
 
-    # Extract the logit vectors associated with the best query pixel-wise
-    best_q_flat = best_query.view(B, -1)  # [B, H*W]
-    pixel_logits = logits_cls[
-        torch.arange(B, device=device).unsqueeze(1).expand(B, H * W),
-        best_q_flat,
-    ].view(B, H, W, num_classes).permute(0, 3, 1, 2)  # [B, C, H, W]
+    log_probs = torch.log(dense_probs.clamp(min=1e-6))
 
-    loss = nn.functional.cross_entropy(
-        pixel_logits, targets, ignore_index=ignore_index
+    return nn.functional.nll_loss(
+        log_probs, targets, ignore_index=ignore_index
     )
-    return loss
 
 
+# ──────────────────────────────────────────────────────────
+# Training
+# ──────────────────────────────────────────────────────────
 def train_one_epoch(model, loader, optimizer, scheduler, scaler, device, cfg, epoch):
     model.train()
     total_loss = 0.0
@@ -105,7 +86,8 @@ def train_one_epoch(model, loader, optimizer, scheduler, scaler, device, cfg, ep
 
         with autocast(enabled=use_amp):
             outputs = model(images)
-            loss = panoptic_loss(outputs, targets, num_classes) / accum_steps
+            loss = panoptic_loss(outputs, targets, num_classes)
+            loss = loss / accum_steps
 
         scaler.scale(loss).backward()
 
@@ -115,18 +97,29 @@ def train_one_epoch(model, loader, optimizer, scheduler, scaler, device, cfg, ep
                 torch.nn.utils.clip_grad_norm_(
                     model.parameters(), cfg["train"]["clip_grad_norm"]
                 )
+
             scaler.step(optimizer)
             scaler.update()
             optimizer.zero_grad()
             scheduler.step()
 
         total_loss += loss.item() * accum_steps
-        pbar.set_postfix(loss=f"{loss.item() * accum_steps:.4f}",
-                         lr=f"{scheduler.get_last_lr()[0]:.2e}")
+
+        pbar.set_postfix(
+            loss=f"{loss.item() * accum_steps:.4f}",
+            lr=f"{scheduler.get_last_lr()[0]:.2e}"
+        )
+
+        if step == 0 and epoch == 1:
+            print("DEBUG logits sample:",
+                  outputs["pred_logits"][0, :5].detach().cpu())
 
     return total_loss / len(loader)
 
 
+# ──────────────────────────────────────────────────────────
+# Validation
+# ──────────────────────────────────────────────────────────
 @torch.no_grad()
 def validate(model, loader, device, num_classes, use_amp=True):
     model.eval()
@@ -139,9 +132,6 @@ def validate(model, loader, device, num_classes, use_amp=True):
         with autocast(enabled=use_amp):
             outputs = model(images)
 
-        # Apply the fast vectorized function to convert query masks and logits 
-        # into dense final class maps [B, H, W] ready for mIoU computation.
-        # Exclude the background/no-object class index.
         pred_masks_sig = torch.sigmoid(outputs["pred_masks"])
         pred_logits_cls = outputs["pred_logits"][..., :-1]
 
@@ -149,13 +139,16 @@ def validate(model, loader, device, num_classes, use_amp=True):
             pred_masks=pred_masks_sig,
             pred_logits=pred_logits_cls,
             threshold=0.5
-        ) # Output: [B, H, W] ready for mIoU calculation
+        )
 
         meter.update(preds, targets)
 
     return meter.compute()
 
 
+# ──────────────────────────────────────────────────────────
+# Main
+# ──────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="configs/default_eomt.yaml")
@@ -175,10 +168,23 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info(f"Training on: {device}")
 
-    # ── Build model ──────────────────────────────────────────────────────────
+    # Model
     model = build_eomt(cfg)
 
-    # Apply LoRA
+    # 🔴 CHECK class mismatch
+    if hasattr(model, "class_embed"):
+        w = model.class_embed.weight
+        num_ckpt_classes = w.shape[0]
+        expected = cfg["dataset"]["num_classes"] + 1
+
+        logger.info(f"[CHECK] checkpoint classes: {num_ckpt_classes}")
+
+        if num_ckpt_classes != expected:
+            raise ValueError(
+                f"Class mismatch: checkpoint={num_ckpt_classes}, expected={expected}"
+            )
+
+    # LoRA
     if cfg["lora"]["enabled"]:
         model = inject_lora(
             model,
@@ -194,31 +200,45 @@ def main():
         f"Trainable: {param_info['trainable']:,}  "
         f"({param_info['trainable_pct']:.1f}%)"
     )
+
     model = model.to(device)
 
-    # ── Datasets ─────────────────────────────────────────────────────────────
+    # Data
     img_size = tuple(cfg["dataset"]["image_size"])
+
     train_ds = CityscapesDataset(
         cfg["dataset"]["root"], "train",
         transform=get_train_transform(img_size),
         target_transform=get_mask_transform(img_size),
     )
+
     val_ds = CityscapesDataset(
         cfg["dataset"]["root"], "val",
         transform=get_val_transform(img_size),
         target_transform=get_mask_transform(img_size),
     )
-    train_loader = DataLoader(train_ds, batch_size=cfg["train"]["batch_size"],
-                              shuffle=True, num_workers=4, pin_memory=True, drop_last=True)
-    val_loader   = DataLoader(val_ds, batch_size=cfg["train"]["batch_size"],
-                              shuffle=False, num_workers=4, pin_memory=True)
 
-    # ── Optimizer / Scheduler / AMP ──────────────────────────────────────────
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=True,
+        num_workers=4,
+        pin_memory=True,
+        drop_last=True
+    )
+
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg["train"]["batch_size"],
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
+
     optimizer = build_optimizer(model, cfg)
     scheduler = build_scheduler(optimizer, cfg, steps_per_epoch=len(train_loader))
     scaler    = GradScaler(enabled=cfg["train"]["amp"])
 
-    # ── Training loop ─────────────────────────────────────────────────────────
     best_miou = 0.0
     ckpt_dir  = Path(cfg["paths"]["checkpoint_dir"])
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -228,24 +248,40 @@ def main():
             model, train_loader, optimizer, scheduler, scaler, device, cfg, epoch
         )
 
-        val_results = validate(model, val_loader, device,
-                               cfg["dataset"]["num_classes"], cfg["train"]["amp"])
+        val_results = validate(
+            model,
+            val_loader,
+            device,
+            cfg["dataset"]["num_classes"],
+            cfg["train"]["amp"]
+        )
 
         miou = val_results["mIoU"]
-        logger.info(f"Epoch {epoch:03d} | Loss: {train_loss:.4f} | mIoU: {miou:.4f}")
-        metric_logger.log(epoch, {"train_loss": train_loss, "val_mIoU": miou})
 
-        # Save best
+        logger.info(
+            f"Epoch {epoch:03d} | Loss: {train_loss:.4f} | mIoU: {miou:.4f}"
+        )
+
+        metric_logger.log(epoch, {
+            "train_loss": train_loss,
+            "val_mIoU": miou
+        })
+
         if miou > best_miou:
             best_miou = miou
-            torch.save({"epoch": epoch, "model_state_dict": model.state_dict(),
-                        "mIoU": miou}, ckpt_dir / "eomt_finetuned_best.pth")
-            logger.info(f"  ↑ New best mIoU: {best_miou:.4f} — checkpoint saved.")
+            torch.save({
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "mIoU": miou
+            }, ckpt_dir / "eomt_finetuned_best.pth")
 
-        # Periodic checkpoint
+            logger.info(f"↑ New best mIoU: {best_miou:.4f}")
+
         if epoch % cfg["train"]["save_every"] == 0:
-            torch.save({"epoch": epoch, "model_state_dict": model.state_dict()},
-                       ckpt_dir / f"eomt_epoch{epoch:03d}.pth")
+            torch.save({
+                "epoch": epoch,
+                "model_state_dict": model.state_dict()
+            }, ckpt_dir / f"eomt_epoch{epoch:03d}.pth")
 
     logger.info(f"Training complete. Best mIoU: {best_miou:.4f}")
     metric_logger.finish()
