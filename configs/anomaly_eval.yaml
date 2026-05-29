@@ -1,0 +1,23 @@
+# OoD / Anomaly Evaluation Config
+dataset:
+  cityscapes_root: ./data/cityscapes
+  smiyc_root: ./data/smiyc
+  fs_laf_root: ./data/fishyscapes/FS_LostFound_full
+  fs_static_root: ./data/fishyscapes/FS_Static
+  road_anomaly_root: ./data/road_anomaly
+  num_classes: 19
+  image_size: [1024, 1024]
+
+# Model checkpoints
+checkpoints:
+  erfnet: ./checkpoints/erfnet_cityscapes.pth
+  eomt_coco: ./checkpoints/eomt_coco.bin
+  eomt_cityscapes: ./checkpoints/eomt_cityscapes.bin
+  eomt_finetuned: ./checkpoints/eomt_finetuned_v2.pth
+
+#  Logits cache
+logits_cache:
+  save_dir: /tmp/logits_cache
+  use_cache: true
+
+metrics: [AuPRC, FPR95, AuROC]

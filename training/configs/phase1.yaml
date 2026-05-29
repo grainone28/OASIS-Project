@@ -1,0 +1,25 @@
+
+trainer:
+  max_epochs: 10
+  default_root_dir: /content/drive/MyDrive/OASIS-Project/lightning_logs_phase1
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.ModelCheckpoint
+      init_args:
+        dirpath: /content/drive/MyDrive/OASIS-Project/checkpoints/phase1
+        filename: "epoch_{epoch:02d}"
+        save_last: true
+        every_n_epochs: 2
+        save_top_k: -1
+model:
+  init_args:
+    ckpt_path: /content/drive/MyDrive/OASIS-Project/checkpoints/eomt_coco_adapted.pth
+    load_ckpt_class_head: false
+    llrd: 0.0
+    lr_mult: 0.0
+    attn_mask_annealing_enabled: false
+data:
+  init_args:
+    path: /content/cityscapes
+    batch_size: 2
+    num_workers: 2
+    check_empty_targets: false
