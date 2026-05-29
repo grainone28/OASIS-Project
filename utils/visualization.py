@@ -1,8 +1,3 @@
-"""
-utils/visualization.py
-Helpers for visualising segmentation predictions and anomaly maps.
-"""
-
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -10,7 +5,6 @@ import matplotlib.patches as mpatches
 from PIL import Image
 from typing import Optional
 
-# Cityscapes colour palette (19 trainIds)
 CITYSCAPES_PALETTE = np.array([
     [128, 64, 128],   # road
     [244, 35, 232],   # sidewalk
@@ -41,18 +35,13 @@ CITYSCAPES_NAMES = [
 
 
 def mask_to_rgb(mask: np.ndarray, ignore_index: int = 255) -> np.ndarray:
-    """
-    Convert a [H, W] class-index mask to [H, W, 3] RGB using Cityscapes palette.
-    Ignore pixels are rendered in white.
-    """
-    # --- FIX: Assicuriamoci che la maschera sia 2D [H, W] ---
     if mask.ndim == 3:
         mask = mask.squeeze(0)
     elif mask.ndim == 4:
         mask = mask.squeeze(0).squeeze(0)
         
     h, w = mask.shape
-    rgb = np.ones((h, w, 3), dtype=np.uint8) * 255  # default white
+    rgb = np.ones((h, w, 3), dtype=np.uint8) * 255 
 
     for class_id, colour in enumerate(CITYSCAPES_PALETTE):
         rgb[mask == class_id] = colour
@@ -68,14 +57,10 @@ def visualize_prediction(
     title: str = "",
     save_path: Optional[str] = None,
 ):
-    """
-    Side-by-side visualisation: input | GT | prediction [| anomaly map].
-    """
-    # De-normalise image (ImageNet stats)
+    
     mean = np.array([0.485, 0.456, 0.406])
     std  = np.array([0.229, 0.224, 0.225])
     
-    # Prendi solo la prima immagine del batch (indice 0) per visualizzarla
     img = image[0].permute(1, 2, 0).cpu().numpy()
     img = np.clip(img * std + mean, 0, 1)
 
@@ -120,7 +105,6 @@ def plot_pr_curve(
     title: str = "Precision-Recall Curve",
     save_path: Optional[str] = None,
 ):
-    """Plot PR curve for anomaly detection evaluation."""
     from sklearn.metrics import precision_recall_curve, average_precision_score
 
     mask = labels != 255

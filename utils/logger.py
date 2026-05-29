@@ -1,8 +1,3 @@
-"""
-utils/logger.py
-Lightweight training logger with optional Weights & Biases integration.
-"""
-
 import os
 import json
 import logging
@@ -12,7 +7,6 @@ from typing import Any, Dict, Optional
 
 
 def setup_logging(log_dir: str = "./logs", run_name: Optional[str] = None) -> logging.Logger:
-    """Configure Python logging to console + rotating file."""
     log_dir = Path(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
     run_name = run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -39,10 +33,6 @@ def setup_logging(log_dir: str = "./logs", run_name: Optional[str] = None) -> lo
 
 
 class MetricLogger:
-    """
-    Accumulates and saves per-epoch metrics to a JSON file.
-    Optionally syncs to Weights & Biases.
-    """
 
     def __init__(self, save_dir: str, run_name: str, use_wandb: bool = False, wandb_project: str = "vandal"):
         self.save_dir = Path(save_dir)

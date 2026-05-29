@@ -1,59 +1,33 @@
-"""
-Post-processing utilities for EoMT model outputs.
-Converts DETR-style query predictions to dense segmentation maps.
-
-Owner: Membro 3 (Model Architect)
-Usage: Both Membro 2 (Evaluator) and Membro 3 can import from this file.
-"""
-
 import torch
 import torch.nn.functional as F
 
 
 def queries_to_segmentation(pred_masks, pred_logits, threshold=0.5, method='max'):
-    """
-    Converts DETR-style query predictions to dense segmentation maps.
-    
-    Args:
-        pred_masks: Tensor [B, Q, H, W] - Binary masks for each query
-        pred_logits: Tensor [B, Q, C] - Class logits for each query (C=20 for Cityscapes)
-        threshold: Float - Confidence threshold for mask binarization
-        method: str - 'max' (take highest scoring class per pixel) or 'accumulate'
-    
-    Returns:
-        segmentation: Tensor [B, C, H, W] - Dense segmentation logits
-        pred_classes: Tensor [B, H, W] - Final predicted class per pixel (for mIoU)
-    """
     B, Q, H, W = pred_masks.shape
-    _, _, C = pred_logits.shape  # C = 20 classes
+    _, _, C = pred_logits.shape  
     
     device = pred_masks.device
     
-    # Get predicted class for each query
-    query_class_scores, query_class_ids = pred_logits.max(dim=-1)  # [B, Q]
+    query_class_scores, query_class_ids = pred_logits.max(dim=-1)  
     
-    # Initialize output
     segmentation_logits = torch.zeros(B, C, H, W, device=device)
     
     if method == 'max':
-        # For each pixel, keep only the highest-scoring query
         max_scores = torch.full((B, H, W), -1e6, device=device)
         pred_classes = torch.zeros(B, H, W, dtype=torch.long, device=device)
         
         for b in range(B):
             for q in range(Q):
-                mask = pred_masks[b, q] > threshold  # [H, W]
+                mask = pred_masks[b, q] > threshold  
                 class_id = query_class_ids[b, q].item()
                 score = query_class_scores[b, q].item()
                 
-                # Update pixels where this query has higher score
                 update_mask = (mask) & (score > max_scores[b])
                 pred_classes[b][update_mask] = class_id
                 max_scores[b][update_mask] = score
                 segmentation_logits[b, class_id][update_mask] = score
     
     elif method == 'accumulate':
-        # Sum all query contributions per class
         for b in range(B):
             for q in range(Q):
                 mask = pred_masks[b, q] > threshold
@@ -61,7 +35,7 @@ def queries_to_segmentation(pred_masks, pred_logits, threshold=0.5, method='max'
                 score = query_class_scores[b, q]
                 segmentation_logits[b, class_id] += mask.float() * score
         
-        pred_classes = segmentation_logits.argmax(dim=1)  # [B, H, W]
+        pred_classes = segmentation_logits.argmax(dim=1)  
     
     else:
         raise ValueError(f"Unknown method: {method}")
@@ -70,38 +44,28 @@ def queries_to_segmentation(pred_masks, pred_logits, threshold=0.5, method='max'
 
 
 def queries_to_segmentation_fast(pred_masks, pred_logits, threshold=0.5):
-    """
-    Usa la formula marginale softmax(cls) · sigmoid(mask) → argmax.
-    Robusto al caso in cui nessuna query supera il threshold su un pixel.
-    Il parametro threshold è mantenuto per compatibilità ma non più usato.
-    """
-    mask_cls  = torch.softmax(pred_logits[..., :-1], dim=-1).float()  # [B, Q, C] — scarta no-object
-    mask_pred = torch.sigmoid(pred_masks).float()                       # [B, Q, H, W]
-    sem_map   = torch.einsum("bqc,bqhw->bchw", mask_cls, mask_pred)  # [B, C, H, W]
-    return sem_map.argmax(dim=1)                                # [B, H, W]
+    mask_cls  = torch.softmax(pred_logits[..., :-1], dim=-1).float()  
+    mask_pred = torch.sigmoid(pred_masks).float()                      
+    sem_map   = torch.einsum("bqc,bqhw->bchw", mask_cls, mask_pred)  
+    return sem_map.argmax(dim=1)                               
 
-
-# Test function
 if __name__ == "__main__":
     print("Testing postprocessing functions...")
     
-    # Simulate EoMT outputs
     B, Q, H, W, C = 2, 100, 512, 1024, 20
-    pred_masks = torch.sigmoid(torch.randn(B, Q, H, W))  # [0, 1] range
+    pred_masks = torch.sigmoid(torch.randn(B, Q, H, W))  
     pred_logits = torch.randn(B, Q, C)
     
     print(f"Input shapes:")
     print(f"  pred_masks: {pred_masks.shape}")
     print(f"  pred_logits: {pred_logits.shape}")
     
-    # Test slow version
     seg_logits, pred_classes = queries_to_segmentation(pred_masks, pred_logits)
     print(f"\nOutput (slow method):")
     print(f"  segmentation_logits: {seg_logits.shape}")
     print(f"  pred_classes: {pred_classes.shape}")
     print(f"  Unique classes predicted: {torch.unique(pred_classes)}")
     
-    # Test fast version
     pred_classes_fast = queries_to_segmentation_fast(pred_masks, pred_logits)
     print(f"\nOutput (fast method):")
     print(f"  pred_classes: {pred_classes_fast.shape}")

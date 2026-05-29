@@ -1,13 +1,3 @@
-"""
-utils/anomaly_methods.py
-Post-hoc anomaly scoring methods:
-  - MSP  (Maximum Softmax Probability)   — for pixel-based models like ERFNet
-  - MaxLogit                              — for pixel-based models
-  - MaxEntropy (Shannon)                  — for pixel-based models
-  - RbA  (Rejected by All)                — for mask-based models like EoMT
-  - Temperature Scaling calibration
-"""
-
 from typing import Dict, Optional
 
 import numpy as np
@@ -15,25 +5,16 @@ import torch
 import torch.nn.functional as F
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Maximum Softmax Probability (Steps 6 & 7 — ERFNet)
-# ═══════════════════════════════════════════════════════════════════════════════
+# Maximum Softmax Probability 
 
 def msp_anomaly_score(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
-    """
-    Compute the per-pixel MSP anomaly score from raw logits.
-
-    A HIGH anomaly score → likely OoD.
-    Score = 1 - max_class(softmax(logits / T))
-    """
-    logits = logits.float()  # forza fp32 per stabilità numerica (autocast → fp16 → NaN)
+    logits = logits.float()  
     probs = F.softmax(logits / temperature, dim=1)
     max_prob = probs.max(dim=1).values
     return 1.0 - max_prob
 
 
 def msp_from_logits_file(path: str, temperature: float = 1.0) -> np.ndarray:
-    """Load cached logits from disk and compute MSP scores."""
     if path.endswith(".npy"):
         logits = torch.from_numpy(np.load(path))
     else:
@@ -42,27 +23,21 @@ def msp_from_logits_file(path: str, temperature: float = 1.0) -> np.ndarray:
     return scores.numpy()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Rejected by All — RbA (Step 8 — EoMT)
-# ═══════════════════════════════════════════════════════════════════════════════
+# Rejected by All — RbA 
 
 def rba_anomaly_score(
     pred_logits: torch.Tensor,
     pred_masks: torch.Tensor,
     temperature: float = 1.0,
 ) -> torch.Tensor:
-    """
-    RbA: Rejected by All anomaly score for mask-based architectures.
-
-    Core idea: a pixel is anomalous if NO query "claims" it with high confidence.
-    """
+    
     pred_logits = pred_logits.float()
     pred_masks  = pred_masks.float()
 
-    known_logits = pred_logits[..., :-1] / temperature       # [B, Q, C]
-    class_conf   = F.softmax(known_logits, dim=-1).max(dim=-1).values  # [B, Q]
+    known_logits = pred_logits[..., :-1] / temperature      
+    class_conf   = F.softmax(known_logits, dim=-1).max(dim=-1).values  
 
-    mask_prob = torch.sigmoid(pred_masks)                    # [B, Q, H, W]
+    mask_prob = torch.sigmoid(pred_masks)                    
 
     class_conf_expanded = class_conf.unsqueeze(-1).unsqueeze(-1)
     query_score = class_conf_expanded * mask_prob
@@ -71,44 +46,26 @@ def rba_anomaly_score(
     return 1.0 - max_query_score
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# MaxLogit & MaxEntropy (Step 8 — Metodi Post-Hoc)
-# ═══════════════════════════════════════════════════════════════════════════════
+# MaxLogit & MaxEntropy 
 
 def maxlogit_anomaly_score(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
-    """
-    Calcola l'anomaly score basato sul Maximum Logit.
-    Score = - max(logits / T)
-    Valori più alti indicano maggiore probabilità di anomalia.
-    """
-    logits = logits.float()  # forza fp32
+
+    logits = logits.float()  
     scaled_logits = logits / temperature
     max_logits = scaled_logits.max(dim=1).values
     return -max_logits
 
 
 def maxentropy_anomaly_score(logits: torch.Tensor, temperature: float = 1.0) -> torch.Tensor:
-    """
-    Calcola l'anomaly score basato sull'Entropia di Shannon.
-    Score = - sum(p * log(p))
-    Maggiore è l'entropia, più il modello è incerto (anomalia).
-
-    Implementazione numericamente stabile:
-      - fp32 forzato (evita NaN da autocast fp16)
-      - log_softmax + exp invece di softmax + log (più stabile)
-      - torch.nan_to_num finale come rete di sicurezza
-    """
-    logits = logits.float()  # forza fp32: con fp16 + logit estremi, softmax → 0/inf → NaN
+    logits = logits.float()  
     scaled = logits / temperature
-    log_probs = F.log_softmax(scaled, dim=1)     # [B, C, H, W] — stabile anche per logit grandi
-    probs     = log_probs.exp()                  # softmax stabile
-    entropy   = -(probs * log_probs).sum(dim=1)  # [B, H, W]
-    # Rete di sicurezza: sostituisci eventuali NaN/Inf residui con 0
+    log_probs = F.log_softmax(scaled, dim=1)     
+    probs     = log_probs.exp()                  
+    entropy   = -(probs * log_probs).sum(dim=1)  
     return torch.nan_to_num(entropy, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 def maxlogit_from_logits_file(path: str, temperature: float = 1.0) -> np.ndarray:
-    """Load cached logits from disk and compute MaxLogit scores."""
     if path.endswith(".npy"):
         logits = torch.from_numpy(np.load(path))
     else:
@@ -118,7 +75,6 @@ def maxlogit_from_logits_file(path: str, temperature: float = 1.0) -> np.ndarray
 
 
 def maxentropy_from_logits_file(path: str, temperature: float = 1.0) -> np.ndarray:
-    """Load cached logits from disk and compute MaxEntropy scores."""
     if path.endswith(".npy"):
         logits = torch.from_numpy(np.load(path))
     else:
@@ -127,9 +83,7 @@ def maxentropy_from_logits_file(path: str, temperature: float = 1.0) -> np.ndarr
     return scores.numpy()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
 # Temperature Scaling Grid Search
-# ═══════════════════════════════════════════════════════════════════════════════
 
 def grid_search_temperature(
     logits_dir: str,
@@ -141,10 +95,6 @@ def grid_search_temperature(
     metric: str = "AuPRC",
     ignore_value: int = 255,
 ) -> Dict[str, float]:
-    """
-    Efficiently sweep temperature values over pre-saved logits to find
-    the best calibration without re-running the model.
-    """
     import os
     from utils.metrics import evaluate_anomaly
 
