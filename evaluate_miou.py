@@ -1,9 +1,3 @@
-"""
-evaluate_miou.py — Step 4: Evaluation Baseline
-Evaluate ERFNet o EoMT (architettura ufficiale TU/e) checkpoints
-sul set di validazione Cityscapes e calcola mean IoU.
-"""
-
 import argparse
 import yaml
 from typing import Optional
@@ -25,7 +19,6 @@ from utils.logger import setup_logging
 
 
 def _detect_eomt_orig_config(checkpoint_path):
-    """Ispeziona un checkpoint EoMT e deduce image_size, num_queries, num_classes."""
     state = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
     state = state.get("state_dict", state) if isinstance(state, dict) else state
     state = {k.replace("network.", "", 1): v for k, v in state.items()
@@ -42,8 +35,8 @@ def build_model(model_name, cfg, checkpoint, device, num_classes_override=None):
     num_classes = num_classes_override or cfg["dataset"]["num_classes"]
 
     if model_name == "eomt-orig":
-        from models.eomt.eomt_orig.eomt import EoMT as EoMTOrig
-        from models.eomt.eomt_orig.vit import ViT
+        from training.models.eomt import EoMT as EoMTOrig
+        from training.models.vit import ViT
         img_size_det, num_q_det, num_classes_det = _detect_eomt_orig_config(checkpoint)
         print(f"[EoMT-orig] Detected: img_size={img_size_det}, "
               f"num_q={num_q_det}, num_classes={num_classes_det}")
@@ -52,7 +45,7 @@ def build_model(model_name, cfg, checkpoint, device, num_classes_override=None):
         model = EoMTOrig(encoder=vit, num_classes=num_classes_det,
                          num_q=num_q_det, num_blocks=3, masked_attn_enabled=True)
     elif model_name == "erfnet":
-        from models.erfnet import ERFNet
+        from training.models.erfnet import ERFNet
         model = ERFNet(num_classes=20 if num_classes_override is None else num_classes)
     else:
         raise ValueError(f"Unknown model: {model_name}")
@@ -93,7 +86,7 @@ def evaluate(model, dataloader, device, model_name, num_classes, is_coco=False):
             preds = sem_logits.argmax(dim=1)
             if is_coco:
                 preds = remap_coco_to_cityscapes(preds, lut=coco_lut)
-        else:  # erfnet
+        else:  
             logits = model(images)
             if logits.shape[1] > num_classes:
                 logits = logits[:, :num_classes]
@@ -121,7 +114,6 @@ def main():
     logger = setup_logging()
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
-    # Compat: alcuni config hanno dataset.cityscapes_root invece di dataset.root
     if "root" not in cfg["dataset"]:
         cfg["dataset"]["root"] = cfg["dataset"].get("cityscapes_root", "./data/cityscapes")
     if "num_classes" not in cfg["dataset"]:
@@ -136,7 +128,6 @@ def main():
         logger.info(f"[EoMT-orig] image_size from checkpoint: {img_size_det}")
     logger.info(f"Device: {device}")
 
-    # ERFNet ed EoMT-orig usano range [0,1] (no ImageNet norm)
     img_transform = get_val_transform_erfnet(tuple(cfg["dataset"]["image_size"]))
 
     dataset = CityscapesDataset(

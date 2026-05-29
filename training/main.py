@@ -9,7 +9,7 @@ from lightning.pytorch.callbacks import ModelSummary, LearningRateMonitor
 from lightning.pytorch.loops.training_epoch_loop import _TrainingEpochLoop
 from lightning.pytorch.loops.fetchers import _DataFetcher, _DataLoaderIterDataFetcher
 
-from training.lightning_module import LightningModule
+from training.train.lightning_module import LightningModule
 from datasets.lightning_data_module import LightningDataModule
 
 import os

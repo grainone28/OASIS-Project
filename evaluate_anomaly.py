@@ -1,5 +1,3 @@
-"""evaluate_anomaly.py — Steps 6, 7 & 8: Out-of-Distribution Evaluation"""
-
 import argparse
 import yaml
 import numpy as np
@@ -25,7 +23,7 @@ TEMPERATURE_SEARCH_VALUES = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
 
 def load_model(model_name, ckpt_path, cfg, device, eomt_version="finetuned"):
     if model_name == "erfnet":
-        from models.erfnet import ERFNet
+        from training.models.erfnet import ERFNet
         model = ERFNet(num_classes=20)
         if ckpt_path:
             state = torch.load(ckpt_path, map_location=str(device), weights_only=False)
@@ -46,12 +44,11 @@ def load_model(model_name, ckpt_path, cfg, device, eomt_version="finetuned"):
     if model_name != "eomt":
         raise ValueError(f"Unknown model: {model_name}")
 
-    # Tutti gli EoMT (cityscapes, coco, finetuned) usano architettura ufficiale TU/e
     if eomt_version not in ("cityscapes", "coco", "finetuned"):
         raise ValueError(f"Unknown eomt_version: {eomt_version}")
 
-    from models.eomt.eomt_orig.eomt import EoMT as EoMTOrig
-    from models.eomt.eomt_orig.vit import ViT
+    from training.models.eomt import EoMT as EoMTOrig
+    from training.models.vit import ViT
 
     peek = torch.load(ckpt_path, map_location='cpu', weights_only=False)
     peek = peek.get("state_dict", peek) if isinstance(peek, dict) else peek
@@ -76,7 +73,6 @@ def load_model(model_name, ckpt_path, cfg, device, eomt_version="finetuned"):
 
 
 def load_ood_dataset(dataset_name, cfg, model_name="eomt", image_size=None):
-    # Tutti i modelli (ERFNet, EoMT-orig) usano range [0,1]
     transform = (get_val_transform_erfnet(image_size) if image_size
                  else get_val_transform_erfnet())
 
@@ -93,7 +89,6 @@ def load_ood_dataset(dataset_name, cfg, model_name="eomt", image_size=None):
         return SMIYCDataset(root=cfg["dataset"]["smiyc_root"], subset="RoadObstacle21",
                             image_transform=transform)
     if dataset_name == "road_anomaly":
-        # Struttura flat: images/ + labels_masks/ (Lis et al.)
         return FishyscapesLostAndFound(root=cfg["dataset"]["road_anomaly_root"],
                                        image_transform=transform)
     raise ValueError(f"Unknown OoD dataset: {dataset_name}")

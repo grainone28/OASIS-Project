@@ -1,6 +1,6 @@
 
 trainer:
-  max_epochs: 20   # cumulative dopo phase 1
+  max_epochs: 20  
   default_root_dir: /content/drive/MyDrive/OASIS-Project/lightning_logs_phase2
   callbacks:
     - class_path: lightning.pytorch.callbacks.ModelCheckpoint
