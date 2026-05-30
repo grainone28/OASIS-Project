@@ -261,4 +261,4 @@ backbone.
 Datasets and pre-trained checkpoints used in this work were provided by
 the course instructors (VANDAL Lab, Politecnico di Torino). 
 
-Source: https://github.com/AlessandroMarinai/MaskArchitectureAnomaly_CourseProject/tree/main
+Source: https://github.com/AlessandroMarinai/MaskArchitectureAnomaly_CourseProject/tree/main.
