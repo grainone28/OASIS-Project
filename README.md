@@ -11,6 +11,8 @@ RoadAnomaly21 / RoadObstacle21, Road Anomaly).
 
 **Authors: Rainone Gerardo, Stasio Imma, D'Amico Davide, Di Foggia Alessandra.**
 
+
+
 ## What this project implements
 
 Three main implementation blocks:
@@ -258,4 +260,5 @@ backbone.
 
 Datasets and pre-trained checkpoints used in this work were provided by
 the course instructors (VANDAL Lab, Politecnico di Torino). 
+
 Source: https://github.com/AlessandroMarinai/MaskArchitectureAnomaly_CourseProject/tree/main
