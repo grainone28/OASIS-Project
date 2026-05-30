@@ -2,6 +2,7 @@
 
 *Comprehensive Road Scene Understanding for Autonomous
 Driving* (Politecnico di Torino, VANDAL Lab).
+
 The goal is to compare a pixel-based baseline (ERFNet) against a
 modern mask-based architecture (EoMT, CVPR 2025) on two tasks: closed-set
 semantic segmentation on Cityscapes, and pixel-level anomaly segmentation on
@@ -12,10 +13,9 @@ RoadAnomaly21 / RoadObstacle21, Road Anomaly).
 
 ## What this project implements
 
-The repository covers the eight steps of the project brief through three
-main implementation blocks:
+Three main implementation blocks:
 
-1. **mIoU evaluation on Cityscapes-val** (`evaluate_miou.py`), comparing the
+1. **mIoU evaluation on Cityscapes** (`evaluate_miou.py`), comparing the
    EoMT checkpoint pre-trained on Cityscapes-semantic against the one
    pre-trained on COCO-panoptic. The comparison is non-trivial: the two
    models operate in different label spaces (19 vs. 133 classes), so COCO
@@ -25,8 +25,8 @@ main implementation blocks:
 2. **Fine-tuning of EoMT-COCO on Cityscapes-semantic** (`training/main.py`),
    to test whether the broader visual priors learned on COCO, once
    specialised on driving data, can compete with the model trained on
-   Cityscapes from the start. Fine-tuning is organised in two phases (head
-   only, then progressive unfreezing with layer-wise learning rate decay).
+   Cityscapes from the start. Fine-tuning is organised in two phases: head
+   only, then progressive unfreezing with layer-wise learning rate decay.
 
 3. **Post-hoc anomaly segmentation** (`evaluate_anomaly.py`), applying MSP,
    MaxLogit and MaxEntropy to both architectures, RbA to EoMT only, and a
@@ -36,47 +36,62 @@ main implementation blocks:
 
 ### Two coexisting training-time stacks
 
-`training/` is a vendored copy of the official
-[tue-mps/eomt](https://github.com/tue-mps/eomt) repository. It is built on
-PyTorch Lightning with a layered jsonargparse configuration system that is
-non-trivial to replace. We chose not to rewrite it from scratch: the
-original training pipeline already implements AMP, a two-stage warmup +
-polynomial schedule, and the correct padding logic for masked attention,
-and replacing it would have introduced bugs without any obvious benefit.
+The repository contains two distinct pipelines that coexist without interfering with each other.
 
-For evaluation and inference, however, only the model definitions
-(`training/models/eomt.py`, `vit.py`, `erfnet.py`) are needed. We import
-them directly from the top-level scripts, which avoids dragging Lightning
-and its dependencies into the evaluation pipeline.
+The first is a full training stack located in training/, built on PyTorch Lightning with a layered 
+jsonargparse configuration system. This pipeline handles AMP, a two-stage learning rate schedule 
+(head-only warm-up followed by full backbone fine-tuning with layer-wise learning rate decay), 
+and the masked attention annealing logic required by EoMT. It is invoked exclusively through 
+main.py and is not imported anywhere else. 
+
+The second is a lightweight evaluation stack built
+on top of the top-level scripts (evaluate_miou.py, evaluate_anomaly.py, train.py). 
+These scripts import only the model definitions directly from training/models/ — specifically eomt.py, 
+vit.py, and scale_block.py — without pulling in Lightning or any of its dependencies. 
+This keeps the evaluation pipeline fast, dependency-free, and easy to inspect.
+The separation is intentional: training correctness requires the full Lightning machinery, 
+while evaluation and inference require only PyTorch and the model weights.
+
 
 ### Two-phase fine-tuning
 
 The brief suggests starting with a frozen backbone and progressively
-unfreezing the deeper layers. We split this into two separate config
-files rather than relying on a single training loop with internal
-scheduling:
+unfreezing. We split this into two configuration files,
+`training/configs/phase1.yaml` and `phase2.yaml`, which differ in five
+points:
 
-- `phase1.yaml`: backbone frozen, only the prediction head is trained.
-  This anchors the head to the new label space (19 instead of 133
-  classes) without disturbing the DINOv2 features.
-- `phase2.yaml`: resumes from the phase-1 checkpoint and unfreezes deeper
-  layers using layer-wise learning rate decay (`llrd`).
+- `ckpt_path`: phase 1 starts from the adapted COCO checkpoint, phase 2
+  resumes from the last checkpoint produced by phase 1.
+- `load_ckpt_class_head`: `false` in phase 1 (classification head is
+  reinitialised on the 19 Cityscapes classes), `true` in phase 2.
+- `llrd` (layer-wise learning rate decay): `0.0` in phase 1, `0.9` in
+  phase 2.
+- `lr_mult`: `0.0` in phase 1, `0.1` in phase 2.
+- `attn_mask_annealing_enabled`: `false` in phase 1, `true` in phase 2.
 
-Keeping the two phases in separate configs makes it straightforward to
-resume only phase 2 from a saved checkpoint, which matters when training
-on Colab and the runtime expires mid-experiment.
+Both phases are configured for 10 epochs. Keeping them in separate
+configs makes it straightforward to resume only phase 2 from a saved
+checkpoint, which matters when training on Colab and the runtime
+expires mid-experiment.
+
+
 
 ### COCO checkpoint adaptation
 
 The COCO checkpoint was trained at 640×640 with 200 queries on 133
-panoptic classes. Cityscapes uses 1024×1024, 100 queries, and 19 classes.
-Loading the weights as-is fails because `pos_embed`, `q.weight` and
-`class_head` all have incompatible shapes. `scripts/adapt_coco_checkpoint.py`
-performs three operations:
+panoptic classes. Our fine-tuning on Cityscapes uses 1024×1024 inputs
+(set in `training/datasets/cityscapes_semantic.py`, `img_size=(1024,
+1024)`), 100 queries and 19 classes. Loading the COCO weights as-is
+fails because `pos_embed`, `q.weight` and `class_head` all have
+incompatible shapes. `scripts/adapt_coco_checkpoint.py` performs three
+operations:
 
-1. bicubic interpolation of `pos_embed` onto the new patch grid,
-2. truncation of the excess query embeddings,
-3. removal of `class_head` (re-initialised from scratch).
+1. bicubic interpolation of `pos_embed` from the source 40×40 patch
+   grid to the target 64×64 grid (controlled by `--target-grid`),
+2. truncation of the query embeddings from 200 to 100 (controlled by
+   `--target-num-q`),
+3. removal of `class_head` (re-initialised from scratch on the 19
+   Cityscapes classes).
 
 What remains is enough to start fine-tuning from informed weights rather
 than from random initialisation.
@@ -84,11 +99,10 @@ than from random initialisation.
 ### RbA restricted to EoMT
 
 MSP, MaxLogit and MaxEntropy are defined pixel-wise on the class logits
-and apply to any classifier. RbA (*Rejected by All*, Nayal et al., ICCV
-2023) instead exploits the mask-based structure: it aggregates the mask
-logits of all queries through `tanh` and flags as anomalous those pixels
-that no query claims with high confidence. It therefore only makes sense
-on EoMT, where the query mechanism exists.
+and apply to any classifier. RbA (*Rejected by All*) instead exploits the mask-based structure: 
+it combines, for each query, the sigmoid of the mask logit with the softmax confidence on 
+known classes, and flags as anomalous those pixels for which no query reaches a high combined score. 
+It therefore only makes sense on EoMT, where the query mechanism exists.
 
 ### Cached logits for temperature search
 
@@ -163,17 +177,19 @@ python main.py fit --config configs/cityscapes_semantic.yaml --config configs/ph
 Anomaly segmentation:
 
 ```bash
-# pixel baseline
-python evaluate_anomaly.py --model erfnet --method msp --dataset fishyscapes \
+# pixel baseline (ERFNet + MSP) on Fishyscapes Lost & Found
+python evaluate_anomaly.py --model erfnet --method msp --dataset fs_laf \
     --config configs/anomaly_eval.yaml
 
-# mask baseline with RbA
-python evaluate_anomaly.py --model eomt --method rba --dataset smiyc_anomaly \
+# mask baseline with RbA on SMIYC RoadAnomaly21 (fine-tuned EoMT checkpoint)
+python evaluate_anomaly.py --model eomt --eomt-version finetuned \
+    --method rba --dataset smiyc_ra21 \
     --config configs/anomaly_eval.yaml
 
-# temperature scaling sweep on cached logits
-python evaluate_anomaly.py --model eomt --method msp --dataset fishyscapes \
-    --temperature-search --config configs/anomaly_eval.yaml
+# temperature scaling sweep on cached logits (EoMT + MSP on FS L&F)
+python evaluate_anomaly.py --model eomt --eomt-version finetuned \
+    --method msp --dataset fs_laf --temperature-search \
+    --config configs/anomaly_eval.yaml
 ```
 
 The anomaly evaluation must be repeated for each of the three EoMT
@@ -207,25 +223,16 @@ backbone.
 | EoMT   |       | MaxEntropy  | 0.337 / 0.797   | 0.807* / 0.017* | 0.016 / 0.399   | 0.123 / 0.484   | 0.579* / 0.642  |
 | EoMT   |       | RbA         | 0.618* / 0.272* | 0.491 / 0.216   | 0.307* / 0.202* | 0.558* / 0.152* | 0.487 / 0.273*  |
 
-The anomaly table is reported for each of the three EoMT checkpoints
-(COCO, Cityscapes, fine-tuned).
 
 ### Temperature scaling on MSP
 
 | Method        | mIoU  | SMIYC RA-21       | SMIYC RO-21     | FS L&F          | FS Static       | Road Anomaly    |
 |---------------|-------|-------------------|-----------------|-----------------|-----------------|-----------------|
-| MSP (T=1.0)   | 70.88 | 0.527 / 0.909     | 0.329 / 1.000*  | 0.294 / 0.908   | 0.515 / 0.949   | 0.414 / 0.958   |
-| MSP (T=0.5)   |       | 0.242 / 0.945     | 0.200 / 1.000*  | 0.267 / 0.939   | 0.475 / 0.965   | 0.328 / 0.971   |
+| MSP (T=1.0)   | 70.88 | 0.527 / 0.909     | 0.329 / 1.000   | 0.294 / 0.908   | 0.515 / 0.949   | 0.414 / 0.958   |
+| MSP (T=0.5)   |       | 0.242 / 0.945     | 0.200 / 1.000   | 0.267 / 0.939   | 0.475 / 0.965   | 0.328 / 0.971   |
 | MSP (best=2.0)|       | 0.699* / 0.224*   | 0.353* / 1.000* | 0.339* / 0.861* | 0.564* / 0.206* | 0.455* / 0.934* |
 
 
-## Notes
-
-`training/main.py` imports `from datasets.lightning_data_module import ...`
-without the `training.` prefix, so it must be executed from inside the
-`training/` directory. This behaviour is inherited from the original
-tue-mps repository; we did not modify it to preserve compatibility with
-the upstream configs.
 
 ## References
 
@@ -250,7 +257,5 @@ the upstream configs.
   Understanding*, CVPR 2016.
 
 Datasets and pre-trained checkpoints used in this work were provided by
-the course instructors (VANDAL Lab, Politecnico di Torino). EoMT code is
-adapted from [tue-mps/eomt](https://github.com/tue-mps/eomt) under the
-MIT License; ERFNet from
-[Eromera/erfnet_pytorch](https://github.com/Eromera/erfnet_pytorch).
+the course instructors (VANDAL Lab, Politecnico di Torino). 
+Source: https://github.com/AlessandroMarinai/MaskArchitectureAnomaly_CourseProject/tree/main
