@@ -8,7 +8,7 @@ semantic segmentation on Cityscapes, and pixel-level anomaly segmentation on
 driving benchmarks (Fishyscapes Lost & Found / Static, SegmentMeIfYouCan
 RoadAnomaly21 / RoadObstacle21, Road Anomaly).
 
-Authors: Rainone Gerardo, Stasio Imma, D'Amico Davide, Di Foggia Alessandra.
+**Authors: Rainone Gerardo, Stasio Imma, D'Amico Davide, Di Foggia Alessandra.**
 
 ## What this project implements
 
