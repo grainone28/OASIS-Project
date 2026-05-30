@@ -105,12 +105,12 @@ values are then computed on the cached tensors. This is controlled by
 OASIS-Project/
 ├── configs/      # YAML configuration for the evaluation scripts
 ├── data/         # Cityscapes and OoD dataset loaders, transforms, label LUTs
+├── scripts/      # one-shot utilities (e.g. COCO checkpoint adaptation)
 ├── training/     # Lightning training stack vendored from tue-mps/eomt
 │   ├── configs/  # training configs (Cityscapes base + phase1 / phase2)
 │   ├── datasets/ # Lightning data modules
 │   ├── models/   # EoMT, DINOv2-based ViT, ERFNet
 │   └── train/    # Lightning module, loss, scheduler
-├── scripts/      # one-shot utilities (e.g. COCO checkpoint adaptation)
 ├── utils/        # anomaly scores, metrics, post-processing, visualisation
 ├── evaluate_miou.py     # entry point for the closed-set evaluation
 └── evaluate_anomaly.py  # entry point for the anomaly evaluation
