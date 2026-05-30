@@ -10,7 +10,7 @@ from lightning.pytorch.loops.training_epoch_loop import _TrainingEpochLoop
 from lightning.pytorch.loops.fetchers import _DataFetcher, _DataLoaderIterDataFetcher
 
 from training.train.lightning_module import LightningModule
-from datasets.lightning_data_module import LightningDataModule
+from training.datasets.lightning_data_module import LightningDataModule
 
 import os
 os.environ["TORCH_LOGS"] = "-dynamo"
