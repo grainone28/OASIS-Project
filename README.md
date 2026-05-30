@@ -235,6 +235,14 @@ backbone.
 | MSP (best=2.0)|       | 0.699* / 0.224*   | 0.353* / 1.000* | 0.339* / 0.861* | 0.564* / 0.206* | 0.455* / 0.934* |
 
 
+### Key Takeaways
+
+* **Mask-based vs. Pixel-based architectures:** The modern mask-based architecture (EoMT) intrinsically captures stronger Out-of-Distribution signals than the traditional pixel-based baseline (ERFNet). Even with a simple MSP approach, EoMT significantly outperforms ERFNet across all anomaly benchmarks.
+* **Pre-training vs. Domain Adaptation:** Fine-tuning the COCO-panoptic checkpoint on Cityscapes successfully adapts broader visual priors to the driving domain. While training on Cityscapes from scratch yields a higher closed-set mIoU (77.73%), the fine-tuned model recovers strong performance (70.88%) while maintaining robust generalisation capabilities for anomaly detection.
+* **The effectiveness of RbA:** By leveraging the query-based nature of mask transformers, the *Rejected by All* (RbA) strategy yields the most robust anomaly detection among the baselines. It provides the best trade-off between AuPRC and FPR95, particularly excelling on the Fishyscapes and SMIYC benchmarks.
+* **The crucial role of calibration:** Temperature scaling drastically improves standard baseline methods. Applying a temperature of $T=2.0$ to the standard MSP softens the overconfident logit distributions, massively reducing the False Positive Rate (FPR95) and making MSP highly competitive with more complex post-hoc methods.
+
+
 
 ## References
 
