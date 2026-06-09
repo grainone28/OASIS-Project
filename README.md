@@ -207,7 +207,7 @@ benchmarks to populate the full results table.
 | ERFNet                      | 71.99    |
 | EoMT — pre-trained on COCO  | 50.02    |
 | EoMT — pre-trained on CS    | 77.73    |
-| EoMT — fine-tuned           | 70.88    |
+| EoMT — fine-tuned           | 70.90    |
 
 ### Anomaly segmentation baselines
 
@@ -220,7 +220,7 @@ backbone.
 | ERFNet | 71.99 | MSP         | 0.292 / 0.624   | 0.028 / 0.646   | 0.017 / 0.503   | 0.050 / 0.409   | 0.124 / 0.825   |
 | ERFNet |       | MaxLogit    | 0.384 / 0.593   | 0.047 / 0.483   | 0.033 / 0.451   | 0.062 / 0.397   | 0.156 / 0.733   |
 | ERFNet |       | MaxEntropy  | 0.311 / 0.625   | 0.032 / 0.653   | 0.025 / 0.500   | 0.058 / 0.406   | 0.127 / 0.826   |
-| EoMT   | 70.88 | MSP         | 0.527 / 0.909   | 0.329 / 1.000   | 0.294 / 0.908   | 0.515 / 0.949   | 0.414 / 0.958   |
+| EoMT   | 70.90 | MSP         | 0.527 / 0.909   | 0.329 / 1.000   | 0.294 / 0.908   | 0.515 / 0.949   | 0.414 / 0.958   |
 | EoMT   |       | MaxLogit    | 0.527 / 0.909   | 0.329 / 1.000   | 0.294 / 0.908   | 0.515 / 0.949   | 0.414 / 0.958   |  
 | EoMT   |       | MaxEntropy  | 0.337 / 0.797   | 0.807* / 0.017* | 0.016 / 0.399   | 0.123 / 0.484   | 0.579* / 0.642  |
 | EoMT   |       | RbA         | 0.618* / 0.272* | 0.491 / 0.216   | 0.307* / 0.202* | 0.558* / 0.152* | 0.487 / 0.273*  |
@@ -230,7 +230,7 @@ backbone.
 
 | Method        | mIoU  | SMIYC RA-21       | SMIYC RO-21     | FS L&F          | FS Static       | Road Anomaly    |
 |---------------|-------|-------------------|-----------------|-----------------|-----------------|-----------------|
-| MSP (T=1.0)   | 70.88 | 0.527 / 0.909     | 0.329 / 1.000   | 0.294 / 0.908   | 0.515 / 0.949   | 0.414 / 0.958   |
+| MSP (T=1.0)   | 70.90 | 0.527 / 0.909     | 0.329 / 1.000   | 0.294 / 0.908   | 0.515 / 0.949   | 0.414 / 0.958   |
 | MSP (T=0.5)   |       | 0.242 / 0.945     | 0.200 / 1.000   | 0.267 / 0.939   | 0.475 / 0.965   | 0.328 / 0.971   |
 | MSP (best=2.0)|       | 0.699* / 0.224*   | 0.353* / 1.000* | 0.339* / 0.861* | 0.564* / 0.206* | 0.455* / 0.934* |
 
@@ -246,25 +246,19 @@ backbone.
 
 ## References
 
-- Kerssies et al., *Your ViT is Secretly an Image Segmentation Model*
-  (EoMT), CVPR 2025.
-- Nayal et al., *RbA: Segmenting Unknown Regions Rejected by All*,
-  ICCV 2023.
-- Romera et al., *ERFNet: Efficient Residual Factorized ConvNet for
-  Real-Time Semantic Segmentation*, IEEE T-ITS 2018.
-- Oquab et al., *DINOv2: Learning Robust Visual Features without
-  Supervision*, 2023.
-- Cheng et al., *Masked-attention Mask Transformer for Universal Image
-  Segmentation* (Mask2Former), CVPR 2022.
-- Chan et al., *SegmentMeIfYouCan: A Benchmark for Anomaly Segmentation*,
-  NeurIPS 2021.
-- Blum et al., *The Fishyscapes Benchmark: Anomaly Detection for Semantic
-  Segmentation*, IJCV 2021.
-- Hendrycks et al., *Scaling Out-of-Distribution Detection for Real-World
-  Settings*, ICML 2022.
-- Kirillov et al., *Panoptic Segmentation*, CVPR 2019.
-- Cordts et al., *The Cityscapes Dataset for Semantic Urban Scene
-  Understanding*, CVPR 2016.
+- Blum et al., *The Fishyscapes Benchmark: Measuring blind spots in semantic segmentation*, IJCV 2021.
+- Chan et al., *SegmentMeIfYouCan: A benchmark for anomaly segmentation*, NeurIPS Datasets and Benchmarks Track, 2021.
+- Cheng et al., *Per-pixel classification is not all you need for semantic segmentation*, NeurIPS 2021.
+- Cheng et al., *Mask2Former: Masked-attention mask transformer for universal image segmentation*, CVPR 2022.
+- Cordts et al., *The Cityscapes dataset for semantic urban scene understanding*, CVPR 2016.
+- Hendrycks et al., *Scaling out-of-distribution detection for real-world settings*, ICML 2022.
+- Kerssies et al., *Your ViT is secretly an image segmentation model*, CVPR 2025.
+- Kirillov et al., *Panoptic segmentation*, CVPR 2019.
+- Lin et al., *Microsoft COCO: Common objects in context*, ECCV 2014.
+- Lis et al., *Detecting the unexpected via image resynthesis*, ICCV 2019.
+- Nayal et al., *RbA: Segmenting unknown regions rejected by all*, ICCV 2023.
+- Oquab et al., *DINOv2: Learning robust visual features without supervision*, TMLR 2024.
+- Romera et al., *ERFNet: Efficient residual factorized convnet for real-time semantic segmentation*, IEEE T-ITS 2018.
 
 Datasets and pre-trained checkpoints used in this work were provided by
 the course instructors (VANDAL Lab, Politecnico di Torino). 
