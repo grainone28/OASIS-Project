@@ -65,7 +65,7 @@ COCO_TO_CITYSCAPES = {
     6:  16,   # train        → train
     7:  14,   # truck        → truck
     9:   6,   # traffic light→ traffic light
-    11:  7,   # stop sign    → traffic sign (approssimazione)
+    11:  7,   # stop sign    → traffic sign
 
     100: 0,   # road                  → road
     109: 3,   # wall-brick            → wall
